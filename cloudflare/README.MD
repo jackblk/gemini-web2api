@@ -144,7 +144,7 @@ curl -N https://你的worker.workers.dev/v1/chat/completions \
 
 | 变量名 | 说明 | 示例值 |
 |--------|------|--------|
-| `GEMINI_BL` | Gemini 构建标签（遇到 405 时更新） | `boq_assistant-bard-web-server_20260716.08_p0` |
+| `GEMINI_BL` | Gemini 构建标签（遇到 405 时更新） | `boq_assistant-bard-web-server_20260925.18_p1` |
 | `DEFAULT_MODEL` | 默认模型 | `gemini-3.6-flash` |
 | `AUTH_USER` | 多账户索引 | `0` |
 

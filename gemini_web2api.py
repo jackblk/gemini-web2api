@@ -53,7 +53,7 @@ DEFAULT_CONFIG = {
     "retry_attempts": 3,
     "retry_delay_sec": 2,
     "request_timeout_sec": 180,
-    "gemini_bl": "boq_assistant-bard-web-server_20260716.08_p0",
+    "gemini_bl": "boq_assistant-bard-web-server_20260925.18_p1",
     "auth_user": None,
     "xsrf_token": None,
     "default_model": "gemini-3.6-flash",
@@ -212,7 +212,7 @@ def upload_images(images: list) -> list:
             raise RuntimeError("image fetch failed")
         mime = detect_image_mime(data, mime or "image/png")
         try:
-            file_refs.append(upload_image(data, "image.png", mime or "image/png"))
+            file_refs.append((upload_image(data, "image.png", mime or "image/png"), mime or "image/png"))
         except Exception as e:
             raise RuntimeError(f"image upload failed: {e}") from e
     return file_refs if file_refs else None
@@ -224,7 +224,10 @@ def gemini_stream_generate(prompt: str, model_id: int, think_mode: int, file_ref
     """Send prompt to Gemini StreamGenerate with retry."""
     inner = [None] * 80
     if file_refs:
-        refs = [[None, None, ref] for ref in file_refs]
+        refs = [
+            [[ref, 1, None, mime, str(uuid.uuid4())], "image." + mime.split("/")[-1]]
+            for ref, mime in file_refs
+        ]
         inner[0] = [prompt, 0, None, refs, None, None, 0]
     else:
         inner[0] = [prompt, 0, None, None, None, None, 0]
@@ -315,7 +318,10 @@ def gemini_stream_generate_iter(prompt: str, model_id: int, think_mode: int, fil
     """Send prompt and yield incremental text deltas using httpx streaming."""
     inner = [None] * 80
     if file_refs:
-        refs = [[None, None, ref] for ref in file_refs]
+        refs = [
+            [[ref, 1, None, mime, str(uuid.uuid4())], "image." + mime.split("/")[-1]]
+            for ref, mime in file_refs
+        ]
         inner[0] = [prompt, 0, None, refs, None, None, 0]
     else:
         inner[0] = [prompt, 0, None, None, None, None, 0]
@@ -384,7 +390,7 @@ def gemini_stream_generate_iter(prompt: str, model_id: int, think_mode: int, fil
                     buf += chunk
                     if "BardErrorInfo" in buf:
                         import re as _re
-                        m = _re.search(r'BardErrorInfo\s*\[(\d+)\]', buf)
+                        m = _re.search(r'BardErrorInfo"?\s*,?\s*\[(\d+)\]', buf)
                         if m:
                             raise RuntimeError(f"Gemini upstream rejected request: BardErrorInfo [{m.group(1)}]")
                     while "\n" in buf:
@@ -433,7 +439,7 @@ def clean_gemini_text(text: str, strip: bool = True) -> str:
 def extract_response_text(raw: str) -> str:
     """Parse StreamGenerate response to extract final text."""
     import re as _re
-    bard_err = _re.search(r'BardErrorInfo\s*\[(\d+)\]', raw)
+    bard_err = _re.search(r'BardErrorInfo"?\s*,?\s*\[(\d+)\]', raw)
     if bard_err:
         raise RuntimeError(f"Gemini upstream rejected request: BardErrorInfo [{bard_err.group(1)}]")
     texts = []

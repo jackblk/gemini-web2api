@@ -158,7 +158,7 @@ Pro 路由需要 **Gemini Advanced** (付费订阅). 免费 Google 账号的 coo
   "retry_attempts": 3,
   "retry_delay_sec": 2,
   "request_timeout_sec": 180,
-  "gemini_bl": "boq_assistant-bard-web-server_20260716.08_p0",
+  "gemini_bl": "boq_assistant-bard-web-server_20260925.18_p1",
   "auth_user": null,
   "xsrf_token": null,
   "api_keys": ["sk-your-key"],

@@ -88,6 +88,9 @@ def detect_image_mime(image_bytes: bytes, fallback: str = "image/png") -> str:
 def upload_image(image_bytes: bytes, filename: str = "image.png", mime_type: str = "image/png") -> str:
     """Upload image via Scotty resumable upload. Returns file reference path."""
     tokens = _cached_page_tokens()
+    missing = [k for k in ("push_id", "pctx") if k not in tokens]
+    if missing:
+        log(f"Page tokens missing ({', '.join(missing)}), falling back to built-in upload defaults")
     push_id = tokens.get("push_id", "feeds/mcudyrk2a4khkz")
     pctx = tokens.get("pctx", "CgcSBWjK7pYx")
 

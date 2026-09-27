@@ -62,10 +62,76 @@ class PayloadPersistenceTests(unittest.TestCase):
         self.assertEqual(inner[45], 1)
 
     def test_payload_includes_uploaded_image_refs(self):
-        inner = _decode_payload(_build_payload("describe", 1, 4, ["/uploaded/image-ref"]))
+        inner = _decode_payload(_build_payload("describe", 1, 4, [("/uploaded/image-ref", "image/jpeg")]))
 
         self.assertEqual(inner[0][0], "describe")
-        self.assertEqual(inner[0][3], [[None, None, "/uploaded/image-ref"]])
+        [[file_info, filename]] = inner[0][3]
+        self.assertEqual(file_info[:4], ["/uploaded/image-ref", 1, None, "image/jpeg"])
+        self.assertEqual(len(file_info[4]), 36)
+        self.assertEqual(filename, "image.jpeg")
+
+
+def _wrb_line(text):
+    inner = [None, None, None, None, [["rc_1", [text]]], "x" * 200]
+    return json.dumps([["wrb.fr", None, json.dumps(inner)]])
+
+
+class CitationCleanupTests(unittest.TestCase):
+    def test_clean_text_strips_citation_markers_only_when_requested(self):
+        from gemini_web2api.gemini import clean_text
+
+        text = "A[cite: 1]\nB [cite: 1, 2].[cite]"
+        self.assertEqual(clean_text(text, strip_citations=True), "A\nB .")
+        self.assertEqual(clean_text(text), text)
+
+    def _stream(self, get_client, texts, file_refs):
+        from gemini_web2api.gemini import generate_stream
+
+        resp = mock.MagicMock()
+        resp.iter_text.return_value = iter([_wrb_line(t) + "\n" for t in texts])
+        get_client.return_value.stream.return_value.__enter__.return_value = resp
+        return "".join(generate_stream("p", 1, 4, file_refs))
+
+    @mock.patch("gemini_web2api.gemini._get_httpx_client")
+    def test_image_stream_strips_marker_split_across_chunks(self, get_client):
+        texts = ("Hello[ci", "Hello[cite: 1] wor", "Hello[cite: 1] world[")
+        out = self._stream(get_client, texts, [("/ref", "image/png")])
+
+        self.assertEqual(out, "Hello world[")
+
+    @mock.patch("gemini_web2api.gemini._get_httpx_client")
+    def test_text_stream_keeps_citation_markers(self, get_client):
+        texts = ("Hello[ci", "Hello[cite: 1] wor", "Hello[cite: 1] world[")
+        out = self._stream(get_client, texts, None)
+
+        self.assertEqual(out, "Hello[cite: 1] world[")
+
+
+class UpstreamErrorTests(unittest.TestCase):
+    # Real Gemini Web reply for a rejected image request.
+    RAW = (
+        ")]}'\n\n121\n"
+        '[["wrb.fr",null,null,null,null,[3,null,[["type.googleapis.com/assistant.boq.bard.application.BardErrorInfo",[1003]]]]]]\n'
+        '56\n[["di",80],["af.httprm",79,"-5383267747995074321",35]]\n25\n[["e",4,null,null,215]]\n'
+    )
+
+    def test_extract_response_text_raises_on_bard_error(self):
+        from gemini_web2api.gemini import extract_response_text
+
+        with self.assertRaisesRegex(RuntimeError, r"BardErrorInfo \[1003\]"):
+            extract_response_text(self.RAW)
+
+    @mock.patch.dict(CONFIG, {"retry_attempts": 1})
+    @mock.patch("gemini_web2api.gemini._get_httpx_client")
+    def test_stream_raises_on_bard_error(self, get_client):
+        from gemini_web2api.gemini import generate_stream
+
+        resp = mock.MagicMock()
+        resp.iter_text.return_value = iter([self.RAW])
+        get_client.return_value.stream.return_value.__enter__.return_value = resp
+
+        with self.assertRaisesRegex(RuntimeError, r"BardErrorInfo \[1003\]"):
+            list(generate_stream("p", 1, 4))
 
 
 class MessageParsingTests(unittest.TestCase):
@@ -254,7 +320,7 @@ class StreamingEndpointTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         upload_image.assert_called_once_with(b"fake png", "image.png", "image/png")
-        self.assertEqual(generate.call_args.args[3], ["/uploaded/image-ref"])
+        self.assertEqual(generate.call_args.args[3], [("/uploaded/image-ref", "image/png")])
         self.assertIn("[Image attached]", generate.call_args.args[0])
         self.assertEqual(json.loads(body)["choices"][0]["message"]["content"], "looks good")
 
@@ -282,7 +348,7 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         fetch_image_bytes.assert_called_once_with("https://example.com/image.jpg")
         upload_image.assert_called_once_with(b"\xff\xd8\xffremote jpeg", "image.png", "image/jpeg")
-        self.assertEqual(generate.call_args.args[3], ["/uploaded/remote-ref"])
+        self.assertEqual(generate.call_args.args[3], [("/uploaded/remote-ref", "image/jpeg")])
         self.assertIn("[Image attached]", generate.call_args.args[0])
 
     @mock.patch("gemini_web2api.server.upload_image", return_value="/uploaded/image-ref")
@@ -306,7 +372,7 @@ class StreamingEndpointTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         upload_image.assert_called_once_with(b"fake png", "image.png", "image/png")
-        self.assertEqual(generate.call_args.args[3], ["/uploaded/image-ref"])
+        self.assertEqual(generate.call_args.args[3], [("/uploaded/image-ref", "image/png")])
         self.assertIn("What is shown?", generate.call_args.args[0])
         self.assertIn("[Image attached]", generate.call_args.args[0])
 

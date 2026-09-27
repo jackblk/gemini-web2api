@@ -180,7 +180,7 @@ var DEFAULT_CONFIG = {
   //   3. 切换到 Network（网络）标签
   //   4. 在任意请求的 URL 中搜索 "boq_assistant"
   //   5. 复制最新版本号，如 "boq_assistant-bard-web-server_20260730.02_p0"
-  geminiBl: 'boq_assistant-bard-web-server_20260716.08_p0',
+  geminiBl: 'boq_assistant-bard-web-server_20260925.18_p1',
 
   // ---- 多账户支持 ----
   // Google 支持在同一个浏览器中登录多个账户

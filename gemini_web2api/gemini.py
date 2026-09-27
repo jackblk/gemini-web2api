@@ -117,7 +117,10 @@ def _apply_chat_persistence_flags(inner: list) -> None:
 def _build_payload(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None) -> str:
     inner = [None] * 102
     if file_refs:
-        refs = [[None, None, ref] for ref in file_refs]
+        refs = [
+            [[ref, 1, None, mime, str(uuid.uuid4())], "image." + mime.split("/")[-1]]
+            for ref, mime in file_refs
+        ]
         inner[0] = [prompt, 0, None, refs, None, None, 0]
     else:
         inner[0] = [prompt, 0, None, None, None, None, 0]
@@ -157,12 +160,20 @@ def _get_url() -> str:
     )
 
 
-def clean_text(text: str, strip: bool = True) -> str:
+_CITE_RE = re.compile(r'\[cite(?::\s*\d+(?:\s*,\s*\d+)*)?\]')
+# Trailing prefix of a citation marker ("[", "[ci", "[cite: 1") that a later chunk may complete.
+_PARTIAL_CITE_RE = re.compile(r'\[(?:c(?:i(?:t(?:e(?::[\d,\s]*)?)?)?)?)?\Z')
+
+
+def clean_text(text: str, strip: bool = True, strip_citations: bool = False) -> str:
     text = re.sub(
         r'```(?:python|javascript|text)\?code_(?:reference|stdout)&code_event_index=\d+\n.*?```\n?',
         '', text, flags=re.DOTALL
     )
     text = re.sub(r'http://googleusercontent\.com/card_content/\d+\n?', '', text)
+    if strip_citations:
+        # Gemini tags answers about attached files with [cite: N] markers.
+        text = _CITE_RE.sub('', text)
     return text.strip() if strip else text
 
 
@@ -189,9 +200,9 @@ def _extract_texts_from_line(line: str) -> list:
         return []
 
 
-def extract_response_text(raw: str) -> str:
+def extract_response_text(raw: str, strip_citations: bool = False) -> str:
     """Parse full response to get final text."""
-    bard_err = re.search(r'BardErrorInfo\s*\[(\d+)\]', raw)
+    bard_err = re.search(r'BardErrorInfo"?\s*,?\s*\[(\d+)\]', raw)
     if bard_err:
         raise RuntimeError(f"Gemini upstream rejected request: BardErrorInfo [{bard_err.group(1)}]")
     last_text = ""
@@ -199,7 +210,7 @@ def extract_response_text(raw: str) -> str:
         for t in _extract_texts_from_line(line):
             if len(t) > len(last_text):
                 last_text = t
-    return clean_text(last_text)
+    return clean_text(last_text, strip_citations=strip_citations)
 
 
 def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None) -> str:
@@ -223,7 +234,7 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
             else:
                 resp = urllib.request.urlopen(req, context=ctx, timeout=CONFIG["request_timeout_sec"])
             raw = resp.read().decode("utf-8", errors="replace")
-            return extract_response_text(raw)
+            return extract_response_text(raw, strip_citations=bool(file_refs))
         except Exception as e:
             last_err = e
             if attempt < CONFIG["retry_attempts"] - 1:
@@ -247,6 +258,7 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
 
     last_err = None
     emitted_raw_text = ""
+    latest_raw_text = ""
     for attempt in range(CONFIG["retry_attempts"]):
         try:
             with client.stream("POST", url, content=body, headers=headers) as resp:
@@ -255,7 +267,7 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
                 for chunk in resp.iter_text():
                     buf += chunk
                     if "BardErrorInfo" in buf:
-                        bard_err = re.search(r'BardErrorInfo\s*\[(\d+)\]', buf)
+                        bard_err = re.search(r'BardErrorInfo"?\s*,?\s*\[(\d+)\]', buf)
                         if bard_err:
                             raise RuntimeError(
                                 f"Gemini upstream rejected request: BardErrorInfo [{bard_err.group(1)}]"
@@ -267,10 +279,20 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
                                 continue
                             if not t.startswith(emitted_raw_text):
                                 raise RuntimeError("Gemini stream content changed during retry")
-                            delta = clean_text(t[len(emitted_raw_text):], strip=False)
-                            emitted_raw_text = t
+                            latest_raw_text = t
+                            partial = _PARTIAL_CITE_RE.search(t) if file_refs else None
+                            safe = t[:partial.start()] if partial else t
+                            if len(safe) <= len(emitted_raw_text):
+                                continue
+                            delta = clean_text(safe[len(emitted_raw_text):], strip=False, strip_citations=bool(file_refs))
+                            emitted_raw_text = safe
                             if delta:
                                 yield delta
+            if len(latest_raw_text) > len(emitted_raw_text):
+                delta = clean_text(latest_raw_text[len(emitted_raw_text):], strip=False, strip_citations=bool(file_refs))
+                emitted_raw_text = latest_raw_text
+                if delta:
+                    yield delta
             return
         except Exception as e:
             last_err = e

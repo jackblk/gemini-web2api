@@ -37,7 +37,7 @@ def _upload_images(images: list) -> list:
         mime = detect_image_mime(data, mime or "image/png")
         try:
             ref = upload_image(data, "image.png", mime or "image/png")
-            file_refs.append(ref)
+            file_refs.append((ref, mime))
         except Exception as e:
             raise RuntimeError(f"image upload failed: {e}") from e
     return file_refs if file_refs else None
