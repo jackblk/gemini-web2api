@@ -7,6 +7,7 @@ import re
 import urllib.parse
 import hashlib
 import logging
+import threading
 from pathlib import Path
 
 import httpx
@@ -19,6 +20,7 @@ logger = logging.getLogger("gemini_web2api")
 request_id = contextvars.ContextVar("request_id", default=None)
 _cookie_cache = {"str": "", "sapisid": None, "mtime": 0}
 _httpx_client = None
+_cookie_save_lock = threading.Lock()
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
@@ -40,8 +42,43 @@ def _get_httpx_client() -> httpx.Client:
             timeout=CONFIG["request_timeout_sec"],
             headers={"User-Agent": USER_AGENT},
             follow_redirects=True,
+            event_hooks={"response": [_save_rotated_cookies]},
         )
     return _httpx_client
+
+
+def _save_rotated_cookies(response: httpx.Response) -> None:
+    """Write cookies Google refreshed (Set-Cookie) back to the cookie file, so it does not go stale.
+    Only Google responses, and only cookies already in the file, are taken."""
+    cookie_file = CONFIG.get("cookie_file")
+    host = response.request.url.host
+    if not cookie_file or not _cookie_cache["str"] or not (host == "google.com" or host.endswith(".google.com")):
+        return
+    updates = {}
+    for header in response.headers.get_list("set-cookie"):
+        name, _, rest = header.partition("=")
+        value, attrs = rest.split(";", 1)[0], rest.lower()
+        if not value or "max-age=0" in attrs or "expires=thu, 01-jan-1970" in attrs:
+            continue  # a deletion, not a refresh
+        updates[name.strip()] = value
+    with _cookie_save_lock:
+        pairs = dict(p.split("=", 1) for p in _cookie_cache["str"].split("; ") if "=" in p)
+        changed = {k: v for k, v in updates.items() if k in pairs and pairs[k] != v}
+        if not changed:
+            return
+        pairs.update(changed)
+        try:
+            path = Path(cookie_file)
+            data = json.loads(path.read_text())
+            data["cookie"] = "; ".join(f"{k}={v}" for k, v in pairs.items())
+            if "SAPISID" in changed:
+                data["sapisid"] = changed["SAPISID"]
+            path.write_text(json.dumps(data, indent=2) + "\n")
+            _cookie_cache.update({"str": data["cookie"], "sapisid": data.get("sapisid") or None,
+                                  "mtime": path.stat().st_mtime})
+            log(f"Cookie refreshed: {', '.join(sorted(changed))}")
+        except Exception as e:
+            log(f"Cookie save error: {e}")
 
 
 def load_cookie() -> tuple:

@@ -11,7 +11,9 @@ from urllib.parse import parse_qs
 import httpx
 
 from gemini_web2api.config import CONFIG, DEFAULT_CONFIG, load_config, write_default_config
-from gemini_web2api.gemini import _build_headers, _build_payload, _cookie_cache, load_cookie
+from gemini_web2api.gemini import (_build_headers, _build_payload, _cookie_cache, _save_rotated_cookies,
+                                   load_cookie)
+from gemini_web2api.models import available_models
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
 
@@ -573,6 +575,16 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(events[-1][1]["response"]["output"][0]["name"], "get_weather")
 
 
+class AvailableModelsTests(unittest.TestCase):
+    def test_lists_only_models_that_answered_as_themselves(self):
+        models = {"a": {"label": "A", "served": {"anonymous": "B", "signed-in": "A"}},
+                  "auto": {"label": None, "served": {"anonymous": "B"}},
+                  "new": {"label": "N", "served": {}}}
+        with mock.patch("gemini_web2api.models.MODELS", models):
+            self.assertEqual(list(available_models(signed_in=False)), ["auto", "new"])
+            self.assertEqual(list(available_models(signed_in=True)), ["a", "auto", "new"])
+
+
 class WebModelHeaderTests(unittest.TestCase):
     def test_known_mode_sends_web_model_id(self):
         self.assertIn('"e6fa609c3fa255c0"', _build_headers(3)["x-goog-ext-525001261-jspb"])
@@ -599,6 +611,28 @@ class CookieFileTokenTests(unittest.TestCase):
 
     def _write(self, data):
         self.cookie_path.write_text(json.dumps(data))
+
+    def _set_cookie_response(self, url, *set_cookies):
+        headers = [("set-cookie", c) for c in set_cookies]
+        return httpx.Response(200, headers=headers, request=httpx.Request("GET", url))
+
+    def test_google_set_cookie_is_saved_to_cookie_file(self):
+        self._write({"cookie": "SID=a; __Secure-1PSIDTS=old", "sapisid": "s"})
+        load_cookie()
+
+        _save_rotated_cookies(self._set_cookie_response(
+            "https://accounts.google.com/RotateCookies",
+            "__Secure-1PSIDTS=new; Path=/; Secure", "UNKNOWN=x; Path=/", "SID=; Max-Age=0"))
+        data = json.loads(self.cookie_path.read_text())
+        self.assertEqual(data["cookie"], "SID=a; __Secure-1PSIDTS=new")
+        self.assertEqual(load_cookie()[0], "SID=a; __Secure-1PSIDTS=new")
+
+    def test_non_google_set_cookie_is_ignored(self):
+        self._write({"cookie": "SID=a", "sapisid": "s"})
+        load_cookie()
+
+        _save_rotated_cookies(self._set_cookie_response("https://evil.example/img.png", "SID=evil"))
+        self.assertEqual(json.loads(self.cookie_path.read_text())["cookie"], "SID=a")
 
     def test_cookie_file_tokens_override_config(self):
         self._write({"cookie": "SID=x", "sapisid": "s", "auth_user": None,

@@ -1,54 +1,22 @@
-"""Model definitions and mapping from Gemini frontend JS source."""
+"""Model definitions, loaded from models.json (kept current by scripts/check_models.py)."""
+import json
+from pathlib import Path
 
-# MODE_CATEGORY enum from 028-6eb337387583.js:
+# "mode" is the MODE_CATEGORY enum from Gemini's frontend JS:
 #   1=FAST, 2=THINKING, 3=PRO, 4=AUTO, 5=FAST_DYNAMIC_THINKING, 6=FLASH_LITE
+# "id" is the model ID the signed-in web app sends in the x-goog-ext-525001261-jspb header, captured
+# from the browser. Anonymous requests ignore it; a model without one gets the account default.
+MODELS_FILE = Path(__file__).with_name("models.json")
+MODELS = json.loads(MODELS_FILE.read_text())["models"]
+WEB_MODEL_IDS = {m["mode"]: m["id"] for m in MODELS.values() if m.get("id")}
 
-# Model IDs the signed-in web app sends in the x-goog-ext-525001261-jspb header, by mode. Captured
-# from the browser; anonymous requests ignore the header. Other modes get the account default model.
-WEB_MODEL_IDS = {
-    1: "56fdd199312815e2",  # 3.6 Flash
-    3: "e6fa609c3fa255c0",  # 3.1 Pro
-    6: "8c46e95b1a07cecc",  # 3.5 Flash-Lite
-}
 
-MODELS = {
-    "gemini-3.7-flash": {
-        "mode": 1, "think": 4,
-        "desc": "Latest all-around model (Gemini 3.7 Flash)",
-    },
-    "gemini-3.6-flash": {
-        "mode": 1, "think": 4,
-        "desc": "All-around model (Gemini 3.6 Flash)",
-    },
-    "gemini-3.5-flash": {
-        "mode": 1, "think": 4,
-        "desc": "Alias for gemini-3.6-flash (backend upgraded)",
-    },
-    "gemini-3.5-flash-thinking": {
-        "mode": 2, "think": 0,
-        "desc": "Deep thinking mode, longest output (~20k chars)",
-    },
-    "gemini-3.1-pro": {
-        "mode": 3, "think": 4,
-        "desc": "Pro model (requires cookie for real routing)",
-    },
-    "gemini-3.1-pro-enhanced": {
-        "mode": 3, "think": 4, "extra": {31: 2, 80: 3},
-        "desc": "Pro with enhanced output (experimental)",
-    },
-    "gemini-auto": {
-        "mode": 4, "think": 4,
-        "desc": "Auto model selection",
-    },
-    "gemini-3.5-flash-thinking-lite": {
-        "mode": 5, "think": 0,
-        "desc": "Dynamic thinking with adaptive depth",
-    },
-    "gemini-flash-lite": {
-        "mode": 6, "think": 4,
-        "desc": "Lightweight fast model",
-    },
-}
+def available_models(signed_in: bool) -> dict:
+    """Models that answered as themselves in the last check for this state (anonymous or signed in).
+    Models never checked in that state are included."""
+    mode = "signed-in" if signed_in else "anonymous"
+    return {n: c for n, c in MODELS.items()
+            if c.get("label") is None or c.get("served", {}).get(mode, c["label"]) == c["label"]}
 
 
 def resolve_model(model_name: str, default: str = "gemini-3.6-flash"):
@@ -67,9 +35,10 @@ def resolve_model(model_name: str, default: str = "gemini-3.6-flash"):
     cfg = MODELS.get(model_name)
     if not cfg:
         from .gemini import log
-        log(f"Unknown model '{model_name}', falling back to '{default}'")
-        model_name = default
-        cfg = MODELS[default]
+        fallback = default if default in MODELS else "gemini-auto"
+        log(f"Unknown model '{model_name}', falling back to '{fallback}'")
+        model_name = fallback
+        cfg = MODELS[model_name]
     mode_id = cfg["mode"]
     think_mode = think_override if think_override is not None else cfg["think"]
     extra = cfg.get("extra")

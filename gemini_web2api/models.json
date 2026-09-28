@@ -1,0 +1,52 @@
+{
+  "checked": {
+    "anonymous": "2026-09-28",
+    "signed-in": "2026-09-28"
+  },
+  "models": {
+    "gemini-3.6-flash": {
+      "mode": 1,
+      "think": 4,
+      "id": "56fdd199312815e2",
+      "label": "3.6 Flash",
+      "desc": "Gemini 3.6 Flash, all-around model",
+      "served": {
+        "anonymous": "3.5 Flash-Lite",
+        "signed-in": "3.6 Flash"
+      }
+    },
+    "gemini-3.1-pro": {
+      "mode": 3,
+      "think": 4,
+      "id": "e6fa609c3fa255c0",
+      "label": "3.1 Pro",
+      "desc": "Gemini 3.1 Pro, advanced math and code",
+      "served": {
+        "anonymous": "3.5 Flash-Lite",
+        "signed-in": "3.1 Pro"
+      }
+    },
+    "gemini-3.5-flash-lite": {
+      "mode": 6,
+      "think": 4,
+      "id": "8c46e95b1a07cecc",
+      "label": "3.5 Flash-Lite",
+      "desc": "Gemini 3.5 Flash-Lite, fastest answers",
+      "served": {
+        "anonymous": "3.5 Flash-Lite",
+        "signed-in": "3.5 Flash-Lite"
+      }
+    },
+    "gemini-auto": {
+      "mode": 4,
+      "think": 4,
+      "id": null,
+      "label": null,
+      "desc": "Gemini picks the model (the account default)",
+      "served": {
+        "anonymous": "3.5 Flash-Lite",
+        "signed-in": "3.6 Flash"
+      }
+    }
+  }
+}

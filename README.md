@@ -61,13 +61,13 @@ If no `config.json` is found, the server creates one with the defaults on first 
 curl http://localhost:8081/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-your-key" \
-  -d '{"model":"gemini-3.5-flash","messages":[{"role":"user","content":"Hello!"}]}'
+  -d '{"model":"gemini-auto","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 #### PowerShell (Windows)
 
 ```powershell
-curl.exe --% http://127.0.0.1:8081/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer sk-your-key" -d "{\"model\":\"gemini-3.5-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}"
+curl.exe --% http://127.0.0.1:8081/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer sk-your-key" -d "{\"model\":\"gemini-auto\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}"
 ```
 
 > Note: On Windows PowerShell, use `curl.exe` and `--%` so PowerShell does not reinterpret JSON quoting or curl options.
@@ -78,7 +78,7 @@ curl.exe --% http://127.0.0.1:8081/v1/chat/completions -H "Content-Type: applica
 from openai import OpenAI
 client = OpenAI(base_url="http://localhost:8081/v1", api_key="sk-your-key")
 resp = client.chat.completions.create(
-    model="gemini-3.5-flash-thinking",
+    model="gemini-auto",
     messages=[{"role": "user", "content": "Explain quantum computing"}]
 )
 print(resp.choices[0].message.content)
@@ -100,14 +100,16 @@ Supports Google native API endpoints:
 ## Supported Models
 
 > **Model selection is best-effort.** Gemini Web picks the model. Anonymous requests always get
-> 3.5 Flash-Lite. Signed in, `gemini-3.6-flash`, `gemini-3.1-pro` and `gemini-flash-lite` get those
+> 3.5 Flash-Lite. Signed in, `gemini-3.6-flash`, `gemini-3.1-pro` and `gemini-3.5-flash-lite` get those
 > models; other names get the account default. Results depend on your account and on Google's
 > updates. `gemini-auto` works best at the moment.
 
 The proxy sends a mode (fast, thinking, pro, auto, lite) and Gemini decides which model answers.
 The lists below show what actually answered for each proxy model. Refresh them with
-`python scripts/check_models.py --update-readme` (anonymous) and
-`python scripts/check_models.py --cookie-file gemini-auth.json --update-readme` (signed in).
+`python scripts/check_models.py` (anonymous) and
+`python scripts/check_models.py --cookie-file gemini-auth.json` (signed in), then
+`python scripts/update_readme.py`. The check records results in `gemini_web2api/models.json` and,
+when signed in, drops models that Gemini reroutes.
 
 ### Anonymous
 
@@ -116,18 +118,13 @@ Checked 2026-09-28 with `scripts/check_models.py`.
 
 Works:
 
+- `gemini-3.5-flash-lite` (3.5 Flash-Lite)
 - `gemini-auto` (3.5 Flash-Lite)
-- `gemini-flash-lite` (3.5 Flash-Lite)
 
 Rerouted to 3.5 Flash-Lite:
 
-- `gemini-3.7-flash`
 - `gemini-3.6-flash`
-- `gemini-3.5-flash`
-- `gemini-3.5-flash-thinking`
 - `gemini-3.1-pro`
-- `gemini-3.1-pro-enhanced`
-- `gemini-3.5-flash-thinking-lite`
 <!-- models:anonymous:end -->
 
 ### Signed in
@@ -141,26 +138,18 @@ Works:
 
 - `gemini-3.6-flash` (3.6 Flash)
 - `gemini-3.1-pro` (3.1 Pro)
-- `gemini-3.1-pro-enhanced` (3.1 Pro)
+- `gemini-3.5-flash-lite` (3.5 Flash-Lite)
 - `gemini-auto` (3.6 Flash)
-- `gemini-flash-lite` (3.5 Flash-Lite)
-
-Rerouted to 3.6 Flash:
-
-- `gemini-3.7-flash`
-- `gemini-3.5-flash`
-- `gemini-3.5-flash-thinking`
-- `gemini-3.5-flash-thinking-lite`
 <!-- models:signed-in:end -->
 
 ### Thinking Depth
 
-Append `@think=N` to any model name:
+Append `@think=N` to any model name. Not re-checked since Gemini changed how models are picked.
 
 ```
-gemini-3.5-flash-thinking@think=0   # deepest (default)
-gemini-3.5-flash-thinking@think=2   # medium
-gemini-3.5-flash-thinking@think=4   # shallowest
+gemini-3.6-flash@think=0   # deepest
+gemini-3.6-flash@think=2   # medium
+gemini-3.6-flash@think=4   # shallowest (default)
 ```
 
 ## Authentication
@@ -173,7 +162,7 @@ rerouted; see [Supported Models](#supported-models).
 ### Signed in
 
 Signing in gets better models than anonymous use: 3.6 Flash by default with a free account, and
-3.1 Pro or 3.5 Flash-Lite with `gemini-3.1-pro` or `gemini-flash-lite`. Which models answer depends
+3.1 Pro or 3.5 Flash-Lite with `gemini-3.1-pro` or `gemini-3.5-flash-lite`. Which models answer depends
 on the account's plan; see [Supported Models](#supported-models).
 
 1. Create `gemini-auth.json`, either:
@@ -204,7 +193,8 @@ on the account's plan; see [Supported Models](#supported-models).
    Or pass `--cookie-file gemini-auth.json` on the command line.
 
 `auth_user` and `xsrf_token` in `gemini-auth.json` override `config.json`. To refresh,
-replace the file; the server reloads it on the next request without a restart.
+replace the file; the server reloads it on the next request without a restart. When Google sends
+refreshed cookies, the server writes them back to `gemini-auth.json`, so the file must be writable.
 
 If requests return HTTP 400 with an `xsrf` error, export `gemini-auth.json` again and make sure
 `auth_user` matches the `/u/<index>/` part of the browser URL.
@@ -303,7 +293,7 @@ Works with Clash, V2Ray, Shadowsocks, or any HTTP proxy.
 
 ```python
 resp = client.chat.completions.create(
-    model="gemini-3.5-flash",
+    model="gemini-auto",
     messages=[{"role": "user", "content": "What's the weather in Tokyo?"}],
     tools=[{
         "type": "function",
@@ -351,7 +341,14 @@ resp = client.chat.completions.create(
 
 This tool reverse-engineers Google Gemini's web StreamGenerate protocol. It sends requests to the same endpoint that the Gemini web app uses, converting between OpenAI's API format and Gemini's internal protobuf-like format.
 
-The model selection is controlled by field `[79]` in the request payload, mapped from Gemini's frontend JavaScript source (`MODE_CATEGORY` enum).
+Model selection takes two values, both sent by the web app:
+
+- the mode (`MODE_CATEGORY` enum from Gemini's frontend JavaScript) in field `[79]` of the payload;
+- the model ID in the `x-goog-ext-525001261-jspb` header.
+
+Signed-in requests need both to get the requested model; without the ID, Gemini answers with the
+account default. Anonymous requests ignore the ID. The IDs are not documented: they are copied from
+the web app's requests and stored in `gemini_web2api/models.json`.
 
 ## Acknowledgments
 
