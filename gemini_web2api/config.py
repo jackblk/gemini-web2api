@@ -23,9 +23,13 @@ CONFIG = dict(DEFAULT_CONFIG)
 
 
 def load_config(path: str = None):
-    """Load config from JSON file."""
-    if path and Path(path).exists():
-        CONFIG.update(json.loads(Path(path).read_text()))
+    """Load config from JSON file. A relative cookie_file resolves against the config's folder."""
+    if path and (config_path := Path(path)).exists():
+        data = json.loads(config_path.read_text())
+        cookie_file = data.get("cookie_file")
+        if cookie_file and not Path(cookie_file).is_absolute():
+            data["cookie_file"] = str((config_path.parent / cookie_file).resolve())
+        CONFIG.update(data)
     return CONFIG
 
 

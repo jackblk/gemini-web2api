@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs
 
-from gemini_web2api.config import CONFIG, DEFAULT_CONFIG
+from gemini_web2api.config import CONFIG, DEFAULT_CONFIG, load_config
 from gemini_web2api.gemini import _build_payload, _cookie_cache, load_cookie
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
@@ -543,6 +543,20 @@ class CookieFileTokenTests(unittest.TestCase):
         self.assertEqual(CONFIG["xsrf_token"], "cfg-at")
         self.assertEqual(CONFIG["gemini_bl"], "cfg-bl")
         self.assertEqual(CONFIG["auth_user"], 1)
+
+    def test_relative_cookie_file_resolves_against_config_dir(self):
+        config_path = Path(self.tmpdir.name) / "config.json"
+        config_path.write_text(json.dumps({"cookie_file": "./cookie.json"}))
+
+        load_config(str(config_path))
+        self.assertEqual(Path(CONFIG["cookie_file"]), self.cookie_path.resolve())
+
+    def test_absolute_cookie_file_is_kept(self):
+        config_path = Path(self.tmpdir.name) / "config.json"
+        config_path.write_text(json.dumps({"cookie_file": "/etc/cookie.json"}))
+
+        load_config(str(config_path))
+        self.assertEqual(CONFIG["cookie_file"], "/etc/cookie.json")
 
 
 if __name__ == "__main__":
