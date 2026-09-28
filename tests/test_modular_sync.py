@@ -11,7 +11,7 @@ from urllib.parse import parse_qs
 import httpx
 
 from gemini_web2api.config import CONFIG, DEFAULT_CONFIG, load_config, write_default_config
-from gemini_web2api.gemini import _build_payload, _cookie_cache, load_cookie
+from gemini_web2api.gemini import _build_headers, _build_payload, _cookie_cache, load_cookie
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
 
@@ -571,6 +571,15 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(events[3][1]["delta"], '{"city":"Shanghai"}')
         self.assertEqual(events[4][1]["arguments"], '{"city":"Shanghai"}')
         self.assertEqual(events[-1][1]["response"]["output"][0]["name"], "get_weather")
+
+
+class WebModelHeaderTests(unittest.TestCase):
+    def test_known_mode_sends_web_model_id(self):
+        self.assertIn('"e6fa609c3fa255c0"', _build_headers(3)["x-goog-ext-525001261-jspb"])
+
+    def test_unknown_mode_sends_no_model_header(self):
+        self.assertNotIn("x-goog-ext-525001261-jspb", _build_headers(2))
+        self.assertNotIn("x-goog-ext-525001261-jspb", _build_headers())
 
 
 class CookieFileTokenTests(unittest.TestCase):

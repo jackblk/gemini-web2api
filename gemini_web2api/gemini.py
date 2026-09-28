@@ -12,6 +12,7 @@ from pathlib import Path
 import httpx
 
 from .config import CONFIG
+from .models import WEB_MODEL_IDS
 
 logger = logging.getLogger("gemini_web2api")
 # Set per request by the server (one thread per request); log() prefixes it.
@@ -92,7 +93,7 @@ def auth_headers() -> dict:
     return headers
 
 
-def _build_headers() -> dict:
+def _build_headers(model_id: int = None) -> dict:
     account_prefix = _account_prefix()
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -103,6 +104,9 @@ def _build_headers() -> dict:
     }
     if account_prefix:
         headers["X-Goog-AuthUser"] = str(CONFIG["auth_user"])
+    # The payload's mode alone no longer selects the model; the web model ID does.
+    if model_id in WEB_MODEL_IDS:
+        headers["x-goog-ext-525001261-jspb"] = f'[1,null,null,null,"{WEB_MODEL_IDS[model_id]}",null,null,0,[4]]'
     return headers
 
 
@@ -253,7 +257,7 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
     load_cookie()  # refresh tokens from cookie file before building the request
     body = _build_payload(prompt, model_id, think_mode, file_refs, extra_fields)
     url = _get_url()
-    headers = _build_headers()
+    headers = _build_headers(model_id)
     client = _get_httpx_client()
 
     last_err = None
@@ -282,7 +286,7 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
     load_cookie()  # refresh tokens from cookie file before building the request
     body = _build_payload(prompt, model_id, think_mode, file_refs, extra_fields)
     url = _get_url()
-    headers = _build_headers()
+    headers = _build_headers(model_id)
     client = _get_httpx_client()
 
     last_err = None

@@ -3,6 +3,14 @@
 # MODE_CATEGORY enum from 028-6eb337387583.js:
 #   1=FAST, 2=THINKING, 3=PRO, 4=AUTO, 5=FAST_DYNAMIC_THINKING, 6=FLASH_LITE
 
+# Model IDs the signed-in web app sends in the x-goog-ext-525001261-jspb header, by mode. Captured
+# from the browser; anonymous requests ignore the header. Other modes get the account default model.
+WEB_MODEL_IDS = {
+    1: "56fdd199312815e2",  # 3.6 Flash
+    3: "e6fa609c3fa255c0",  # 3.1 Pro
+    6: "8c46e95b1a07cecc",  # 3.5 Flash-Lite
+}
+
 MODELS = {
     "gemini-3.7-flash": {
         "mode": 1, "think": 4,

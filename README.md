@@ -51,7 +51,7 @@ If no `config.json` is found, the server creates one with the defaults on first 
 |-------|-------|
 | Base URL | `http://localhost:8081/v1` |
 | API Key | any `api_keys` value from `config.json`; anything if not configured |
-| Model | `gemini-3.5-flash-thinking` |
+| Model | `gemini-auto` |
 
 ### curl
 
@@ -97,17 +97,61 @@ Supports Google native API endpoints:
 - `POST /v1beta/models/{model}:generateContent` — non-streaming
 - `POST /v1beta/models/{model}:streamGenerateContent` — streaming (SSE)
 
-## Available Models
+## Supported Models
 
-| Model | Description | Output |
-|-------|-------------|--------|
-| `gemini-3.6-flash` | All-around model (latest) | ~12k chars |
-| `gemini-3.5-flash` | Alias for gemini-3.6-flash | ~12k chars |
-| `gemini-3.5-flash-thinking` | Extended thinking, longest output | **~20k chars** |
-| `gemini-3.5-flash-thinking-lite` | Adaptive thinking depth | ~15k chars |
-| `gemini-3.1-pro` | Advanced math & code (needs cookie) | ~12k chars |
-| `gemini-auto` | Auto model selection | varies |
-| `gemini-flash-lite` | Fastest answers, lightweight | ~10k chars |
+> **Model selection is best-effort.** Gemini Web picks the model. Anonymous requests always get
+> 3.5 Flash-Lite. Signed in, `gemini-3.6-flash`, `gemini-3.1-pro` and `gemini-flash-lite` get those
+> models; other names get the account default. Results depend on your account and on Google's
+> updates. `gemini-auto` works best at the moment.
+
+The proxy sends a mode (fast, thinking, pro, auto, lite) and Gemini decides which model answers.
+The lists below show what actually answered for each proxy model. Refresh them with
+`python scripts/check_models.py --update-readme` (anonymous) and
+`python scripts/check_models.py --cookie-file gemini-auth.json --update-readme` (signed in).
+
+### Anonymous
+
+<!-- models:anonymous:start -->
+Checked 2026-09-28 with `scripts/check_models.py`.
+
+Works:
+
+- `gemini-auto` (3.5 Flash-Lite)
+- `gemini-flash-lite` (3.5 Flash-Lite)
+
+Rerouted to 3.5 Flash-Lite:
+
+- `gemini-3.7-flash`
+- `gemini-3.6-flash`
+- `gemini-3.5-flash`
+- `gemini-3.5-flash-thinking`
+- `gemini-3.1-pro`
+- `gemini-3.1-pro-enhanced`
+- `gemini-3.5-flash-thinking-lite`
+<!-- models:anonymous:end -->
+
+### Signed in
+
+Depends on the account's plan. Checked with a free Google account; a paid plan may get other models.
+
+<!-- models:signed-in:start -->
+Checked 2026-09-28 with `scripts/check_models.py`.
+
+Works:
+
+- `gemini-3.6-flash` (3.6 Flash)
+- `gemini-3.1-pro` (3.1 Pro)
+- `gemini-3.1-pro-enhanced` (3.1 Pro)
+- `gemini-auto` (3.6 Flash)
+- `gemini-flash-lite` (3.5 Flash-Lite)
+
+Rerouted to 3.6 Flash:
+
+- `gemini-3.7-flash`
+- `gemini-3.5-flash`
+- `gemini-3.5-flash-thinking`
+- `gemini-3.5-flash-thinking-lite`
+<!-- models:signed-in:end -->
 
 ### Thinking Depth
 
@@ -124,15 +168,13 @@ gemini-3.5-flash-thinking@think=4   # shallowest
 ### Anonymous (default)
 
 No setup needed. Leave `cookie_file` as `null`. Some models do not work anonymously and are
-rerouted to Flash:
-
-- `gemini-3.1-pro`
-- `gemini-3.1-pro-enhanced`
+rerouted; see [Supported Models](#supported-models).
 
 ### Signed in
 
-Signing in with a **Gemini Advanced** (paid) account gives real Pro routing. A free account
-authenticates but still falls back to Flash.
+Signing in gets better models than anonymous use: 3.6 Flash by default with a free account, and
+3.1 Pro or 3.5 Flash-Lite with `gemini-3.1-pro` or `gemini-flash-lite`. Which models answer depends
+on the account's plan; see [Supported Models](#supported-models).
 
 1. Create `gemini-auth.json`, either:
    - **with the extension (recommended)**: install and run the cookie-sync extension as described in
@@ -295,7 +337,7 @@ resp = client.chat.completions.create(
 ## Limitations
 
 - **Image upload may require cookies**: Multimodal input uses Gemini Web's image upload endpoint. If anonymous upload fails, configure a Gemini cookie.
-- **Not real Pro/Ultra**: Without a paid subscription cookie, `gemini-3.1-pro` routes to the same Flash model. The "Pro" label is a UI preference, not a backend model switch.
+- **Best-effort model selection**: the requested model name does not decide which model answers; see [Supported Models](#supported-models).
 - **Single-turn only**: Each request is an independent conversation. Multi-turn context is simulated by including previous messages in the prompt.
 - **Rate limits**: Google may throttle high-frequency requests. The server retries automatically but sustained heavy use may be blocked.
 
