@@ -6,8 +6,8 @@ import re
 import urllib.request
 import urllib.parse
 import ssl
-import os
 import hashlib
+from pathlib import Path
 
 try:
     import httpx
@@ -48,14 +48,13 @@ def _get_httpx_client():
 def load_cookie() -> tuple:
     """Load cookie from file with mtime-based caching."""
     cookie_file = CONFIG.get("cookie_file")
-    if not cookie_file or not os.path.exists(cookie_file):
+    if not cookie_file or not (cookie_path := Path(cookie_file)).exists():
         return "", None
     try:
-        mtime = os.path.getmtime(cookie_file)
+        mtime = cookie_path.stat().st_mtime
         if mtime == _cookie_cache["mtime"] and _cookie_cache["str"]:
             return _cookie_cache["str"], _cookie_cache["sapisid"]
-        with open(cookie_file, "r") as f:
-            content = f.read().strip()
+        content = cookie_path.read_text().strip()
         if content.startswith("{"):
             data = json.loads(content)
             cookie_str = data.get("cookie", "")

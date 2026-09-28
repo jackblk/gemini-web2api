@@ -1,6 +1,6 @@
 """Configuration management."""
 import json
-import os
+from pathlib import Path
 
 DEFAULT_CONFIG = {
     "port": 8081,
@@ -24,15 +24,14 @@ CONFIG = dict(DEFAULT_CONFIG)
 
 def load_config(path: str = None):
     """Load config from JSON file."""
-    if path and os.path.exists(path):
-        with open(path) as f:
-            CONFIG.update(json.load(f))
+    if path and Path(path).exists():
+        CONFIG.update(json.loads(Path(path).read_text()))
     return CONFIG
 
 
 def find_config():
     """Search for config file in standard locations."""
-    for p in ["./config.json", os.path.expanduser("~/.config/gemini-web2api/config.json")]:
-        if os.path.exists(p):
-            return p
+    for p in [Path("config.json"), Path.home() / ".config/gemini-web2api/config.json"]:
+        if p.exists():
+            return str(p)
     return None
