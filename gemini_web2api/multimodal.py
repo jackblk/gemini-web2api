@@ -55,8 +55,10 @@ _page_tokens_cache = {"tokens": {}, "ts": 0}
 def _cached_page_tokens() -> dict:
     now = time.time()
     if now - _page_tokens_cache["ts"] > 600:
+        started = time.monotonic()
         _page_tokens_cache["tokens"] = _get_page_tokens()
         _page_tokens_cache["ts"] = now
+        log(f"Page tokens fetched in {time.monotonic() - started:.1f}s")
     return _page_tokens_cache["tokens"]
 
 
@@ -88,6 +90,7 @@ def detect_image_mime(image_bytes: bytes, fallback: str = "image/png") -> str:
 def upload_image(image_bytes: bytes, filename: str = "image.png", mime_type: str = "image/png") -> str:
     """Upload image via Scotty resumable upload. Returns file reference path."""
     tokens = _cached_page_tokens()
+    started = time.monotonic()
     missing = [k for k in ("push_id", "pctx") if k not in tokens]
     if missing:
         log(f"Page tokens missing ({', '.join(missing)}), falling back to built-in upload defaults")
@@ -131,7 +134,7 @@ def upload_image(image_bytes: bytes, filename: str = "image.png", mime_type: str
     if not upload_url:
         raise RuntimeError(f"No upload URL in response headers: {dict(resp.headers)}")
 
-    log(f"Upload session started: {upload_url[:80]}...")
+    log(f"Upload session started in {time.monotonic() - started:.1f}s: {upload_url[:80]}...")
 
     # Step 2: Upload file data + finalize
     upload_headers = {
@@ -151,7 +154,7 @@ def upload_image(image_bytes: bytes, filename: str = "image.png", mime_type: str
     if not file_ref or not file_ref.startswith("/"):
         raise RuntimeError(f"Invalid file reference: {file_ref[:100]}")
 
-    log(f"Image uploaded: {filename} -> {file_ref[:50]}...")
+    log(f"Image uploaded in {time.monotonic() - started:.1f}s: {filename} -> {file_ref[:50]}...")
     return file_ref
 
 

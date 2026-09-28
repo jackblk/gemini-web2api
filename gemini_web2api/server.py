@@ -8,7 +8,7 @@ from socketserver import ThreadingMixIn
 
 from .config import CONFIG
 from .models import MODELS, resolve_model
-from .gemini import generate, generate_stream, log
+from .gemini import generate, generate_stream, log, request_id
 from .tools import messages_to_prompt, parse_tool_calls, google_contents_to_prompt, parse_google_function_calls
 from .multimodal import detect_image_mime, fetch_image_bytes, upload_image
 from . import __version__
@@ -18,6 +18,15 @@ def _usage(prompt: str, text: str) -> dict:
     p = len(prompt) // 4
     c = len(text or "") // 4
     return {"prompt_tokens": p, "completion_tokens": c, "total_tokens": p + c}
+
+
+def _new_request_id(path: str) -> str:
+    """Request ID for logs; OpenAI endpoints reuse it as the response id."""
+    if path == "/v1/chat/completions":
+        return f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    if path == "/v1/responses":
+        return f"resp_{uuid.uuid4().hex[:16]}"
+    return f"req_{uuid.uuid4().hex[:12]}"
 
 
 def _upload_images(images: list) -> list:
@@ -147,6 +156,8 @@ class GeminiHandler(BaseHTTPRequestHandler):
             pass
 
     def do_POST(self):
+        request_id.set(_new_request_id(self.path))
+        started = time.monotonic()
         try:
             if self.path.startswith("/v1") and not self._authorized():
                 self.send_json({"error": {"message": "invalid api key"}}, 401)
@@ -170,6 +181,9 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": {"message": str(e)}}, 500)
             except:
                 pass
+        finally:
+            log(f"{self.path} done in {time.monotonic() - started:.1f}s")
+            request_id.set(None)
 
     # ─── /v1/chat/completions ─────────────────────────────────────────────────
 
@@ -192,7 +206,7 @@ class GeminiHandler(BaseHTTPRequestHandler):
             return
 
         stream = req.get("stream", False)
-        cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+        cid = request_id.get()
         try:
             file_refs = _upload_images(images)
         except RuntimeError as e:
@@ -334,7 +348,7 @@ class GeminiHandler(BaseHTTPRequestHandler):
         if tools and text and tool_choice != "none":
             text, tool_calls = parse_tool_calls(text)
 
-        rid = f"resp_{uuid.uuid4().hex[:16]}"
+        rid = request_id.get()
         mid = f"msg_{uuid.uuid4().hex[:12]}"
         output = []
         if tool_calls:

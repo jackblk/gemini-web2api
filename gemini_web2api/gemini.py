@@ -1,4 +1,5 @@
 """Gemini StreamGenerate protocol implementation with httpx streaming."""
+import contextvars
 import json
 import time
 import uuid
@@ -19,6 +20,8 @@ except ImportError:
 from .config import CONFIG
 
 logger = logging.getLogger("gemini_web2api")
+# Set per request by the server (one thread per request); log() prefixes it.
+request_id = contextvars.ContextVar("request_id", default=None)
 _ssl_ctx = None
 _cookie_cache = {"str": "", "sapisid": None, "mtime": 0}
 _httpx_client = None
@@ -26,7 +29,8 @@ _httpx_client = None
 
 def log(msg: str):
     if CONFIG["log_requests"]:
-        logger.info(msg)
+        rid = request_id.get()
+        logger.info(f"[{rid}] {msg}" if rid else msg)
 
 
 def _get_ssl_ctx():
@@ -228,6 +232,7 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
     proxy = CONFIG.get("proxy")
 
     last_err = None
+    started = time.monotonic()
     for attempt in range(CONFIG["retry_attempts"]):
         try:
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
@@ -240,11 +245,13 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
             else:
                 resp = urllib.request.urlopen(req, context=ctx, timeout=CONFIG["request_timeout_sec"])
             raw = resp.read().decode("utf-8", errors="replace")
-            return extract_response_text(raw, strip_citations=bool(file_refs))
+            text = extract_response_text(raw, strip_citations=bool(file_refs))
+            log(f"Gemini responded in {time.monotonic() - started:.1f}s (attempt {attempt+1})")
+            return text
         except Exception as e:
             last_err = e
             if attempt < CONFIG["retry_attempts"] - 1:
-                log(f"Retry {attempt+1}/{CONFIG['retry_attempts']}: {e}")
+                log(f"Retry {attempt+1}/{CONFIG['retry_attempts']} after {time.monotonic() - started:.1f}s: {e}")
                 time.sleep(CONFIG["retry_delay_sec"])
     raise last_err
 
@@ -266,6 +273,7 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
     last_err = None
     emitted_raw_text = ""
     latest_raw_text = ""
+    started = time.monotonic()
     for attempt in range(CONFIG["retry_attempts"]):
         try:
             with client.stream("POST", url, content=body, headers=headers) as resp:
@@ -300,10 +308,11 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
                 emitted_raw_text = latest_raw_text
                 if delta:
                     yield delta
+            log(f"Gemini stream finished in {time.monotonic() - started:.1f}s (attempt {attempt+1})")
             return
         except Exception as e:
             last_err = e
             if attempt < CONFIG["retry_attempts"] - 1:
-                log(f"Stream retry {attempt+1}/{CONFIG['retry_attempts']}: {e}")
+                log(f"Stream retry {attempt+1}/{CONFIG['retry_attempts']} after {time.monotonic() - started:.1f}s: {e}")
                 time.sleep(CONFIG["retry_delay_sec"])
     raise last_err

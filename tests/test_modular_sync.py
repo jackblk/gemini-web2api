@@ -296,6 +296,23 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["choices"][0]["message"]["content"], "chunked ok")
 
+    @mock.patch("gemini_web2api.server.generate", return_value="ok")
+    def test_chat_response_id_tags_request_logs(self, _generate):
+        CONFIG["log_requests"] = True
+
+        with self.assertLogs("gemini_web2api", level="INFO") as logs:
+            status, _, body = self.post_json(
+                "/v1/chat/completions",
+                {"model": "gemini-3.6-flash", "messages": [{"role": "user", "content": "hello"}]},
+            )
+
+        cid = json.loads(body)["id"]
+        self.assertEqual(status, 200)
+        self.assertRegex(cid, r"^chatcmpl-[0-9a-f]{12}$")
+        # The access line is logged before the body is sent, so it is always captured.
+        self.assertTrue(any(f"[{cid}]" in line and "POST /v1/chat/completions" in line
+                            for line in logs.output), logs.output)
+
     @mock.patch("gemini_web2api.server.upload_image", return_value="/uploaded/image-ref")
     @mock.patch("gemini_web2api.server.generate", return_value="looks good")
     def test_chat_accepts_openai_image_url_data_url(self, generate, upload_image):
