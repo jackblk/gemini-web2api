@@ -48,6 +48,8 @@ def main():
     logger.info(f"Proxy:     {CONFIG.get('proxy') or 'system env'}")
     logger.info(f"Streaming: {'httpx (true streaming)' if HAS_HTTPX else 'urllib (buffered)'}")
     logger.info(f"Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
+    if not CONFIG.get("temporary_chats", False) and not (cookie_file and Path(cookie_file).exists()):
+        logger.warning("Temporary chats are off but no cookie is loaded: chats will not be saved to any account")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
