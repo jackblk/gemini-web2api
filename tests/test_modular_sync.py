@@ -4,13 +4,14 @@ import json
 import tempfile
 import threading
 import unittest
-import urllib.error
 from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs
 
+import httpx
+
 from gemini_web2api.config import CONFIG, DEFAULT_CONFIG, load_config
-from gemini_web2api.gemini import HAS_HTTPX, _build_payload, _cookie_cache, load_cookie
+from gemini_web2api.gemini import _build_payload, _cookie_cache, load_cookie
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
 
@@ -146,29 +147,31 @@ class StaleBlRetryTests(unittest.TestCase):
         CONFIG.clear()
         CONFIG.update(self.original_config)
 
+    @staticmethod
+    def _stale_bl_error():
+        request = httpx.Request("POST", "https://gemini.google.com/")
+        return httpx.HTTPStatusError("405", request=request, response=httpx.Response(405, request=request))
+
     @mock.patch("gemini_web2api.gemini.fetch_latest_bl", return_value="boq_new")
-    @mock.patch("gemini_web2api.gemini.urllib.request.urlopen")
-    def test_generate_refreshes_bl_after_405(self, urlopen, _fetch):
+    @mock.patch("gemini_web2api.gemini._get_httpx_client")
+    def test_generate_refreshes_bl_after_405(self, get_client, _fetch):
         from gemini_web2api.gemini import generate
 
-        ok = mock.MagicMock()
-        ok.read.return_value = b""
-        urlopen.side_effect = [urllib.error.HTTPError("u", 405, "Method Not Allowed", None, None), ok]
+        post = get_client.return_value.post
+        post.side_effect = [self._stale_bl_error(), mock.MagicMock(text="")]
 
         generate("p", 1, 4)
 
-        self.assertIn("bl=boq_old", urlopen.call_args_list[0].args[0].full_url)
-        self.assertIn("bl=boq_new", urlopen.call_args_list[1].args[0].full_url)
+        self.assertIn("bl=boq_old", post.call_args_list[0].args[0])
+        self.assertIn("bl=boq_new", post.call_args_list[1].args[0])
         self.assertEqual(CONFIG["gemini_bl"], "boq_new")
 
-    @unittest.skipUnless(HAS_HTTPX, "httpx not installed")
     @mock.patch("gemini_web2api.gemini.fetch_latest_bl", return_value="boq_new")
     @mock.patch("gemini_web2api.gemini._get_httpx_client")
     def test_stream_refreshes_bl_after_405(self, get_client, _fetch):
         from gemini_web2api.gemini import generate_stream
 
-        stale = RuntimeError("405 Method Not Allowed")
-        stale.response = mock.Mock(status_code=405)
+        stale = self._stale_bl_error()
         ok = mock.MagicMock()
         ok.__enter__.return_value.iter_text.return_value = iter([])
         stream = get_client.return_value.stream

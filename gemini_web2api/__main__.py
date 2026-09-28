@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .config import CONFIG, load_config, find_config
 from .models import MODELS
-from .gemini import HAS_HTTPX, fetch_latest_bl, load_cookie, logger
+from .gemini import fetch_latest_bl, load_cookie, logger
 from .server import GeminiHandler, ThreadedServer
 from . import __version__
 
@@ -20,6 +20,8 @@ def main():
     parser.add_argument("--version", action="version", version=f"gemini-web2api {__version__}")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    # httpx logs every request at INFO, untagged and with full URLs (upload IDs included).
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     config_path = args.config or os.environ.get("GEMINI_WEB2API_CONFIG") or find_config()
     if config_path:
@@ -51,7 +53,6 @@ def main():
     else:
         logger.warning(f"Cookie:    {cookie_file} not found, requests will be anonymous")
     logger.info(f"Proxy:     {CONFIG.get('proxy') or 'system env'}")
-    logger.info(f"Streaming: {'httpx (true streaming)' if HAS_HTTPX else 'urllib (buffered)'}")
     logger.info(f"BL:        {CONFIG['gemini_bl']}{'' if new_bl else ' (auto-update failed, using configured value)'}")
     logger.info(f"Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
     if not CONFIG.get("temporary_chats", False) and not (cookie_file and Path(cookie_file).exists()):

@@ -1,30 +1,25 @@
-"""Gemini StreamGenerate protocol implementation with httpx streaming."""
+"""Gemini StreamGenerate protocol implementation over a shared httpx client."""
 import contextvars
 import json
 import time
 import uuid
 import re
-import urllib.request
 import urllib.parse
-import ssl
 import hashlib
 import logging
 from pathlib import Path
 
-try:
-    import httpx
-    HAS_HTTPX = True
-except ImportError:
-    HAS_HTTPX = False
+import httpx
 
 from .config import CONFIG
 
 logger = logging.getLogger("gemini_web2api")
 # Set per request by the server (one thread per request); log() prefixes it.
 request_id = contextvars.ContextVar("request_id", default=None)
-_ssl_ctx = None
 _cookie_cache = {"str": "", "sapisid": None, "mtime": 0}
 _httpx_client = None
+
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
 def log(msg: str):
@@ -33,19 +28,18 @@ def log(msg: str):
         logger.info(f"[{rid}] {msg}" if rid else msg)
 
 
-def _get_ssl_ctx():
-    global _ssl_ctx
-    if _ssl_ctx is None:
-        _ssl_ctx = ssl.create_default_context()
-    return _ssl_ctx
-
-
-def _get_httpx_client():
+def _get_httpx_client() -> httpx.Client:
+    """Shared client for every upstream request. Without a configured proxy, httpx uses the
+    HTTP(S)_PROXY environment variables."""
     global _httpx_client
-    if _httpx_client is None and HAS_HTTPX:
+    if _httpx_client is None:
         proxy = CONFIG.get("proxy")
-        transport = httpx.HTTPTransport(proxy=proxy) if proxy else None
-        _httpx_client = httpx.Client(transport=transport, timeout=CONFIG["request_timeout_sec"], verify=True)
+        _httpx_client = httpx.Client(
+            transport=httpx.HTTPTransport(proxy=proxy) if proxy else None,
+            timeout=CONFIG["request_timeout_sec"],
+            headers={"User-Agent": USER_AGENT},
+            follow_redirects=True,
+        )
     return _httpx_client
 
 
@@ -94,6 +88,17 @@ def _account_prefix() -> str:
     return f"/u/{auth_user}"
 
 
+def auth_headers() -> dict:
+    """Cookie and SAPISIDHASH headers from the cookie file; empty when anonymous."""
+    cookie_str, sapisid = load_cookie()
+    headers = {}
+    if cookie_str:
+        headers["Cookie"] = cookie_str
+    if sapisid:
+        headers["Authorization"] = make_sapisidhash(sapisid)
+    return headers
+
+
 def _build_headers() -> dict:
     account_prefix = _account_prefix()
     headers = {
@@ -101,15 +106,10 @@ def _build_headers() -> dict:
         "Origin": "https://gemini.google.com",
         "Referer": f"https://gemini.google.com{account_prefix}/app",
         "X-Same-Domain": "1",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        **auth_headers(),
     }
     if account_prefix:
         headers["X-Goog-AuthUser"] = str(CONFIG["auth_user"])
-    cookie_str, sapisid = load_cookie()
-    if cookie_str:
-        headers["Cookie"] = cookie_str
-    if sapisid:
-        headers["Authorization"] = make_sapisidhash(sapisid)
     return headers
 
 
@@ -159,23 +159,17 @@ def _build_payload(prompt: str, model_id: int, think_mode: int, file_refs: list 
     return urllib.parse.urlencode(params)
 
 
+def fetch_gemini_page(timeout: float) -> str:
+    """HTML of the Gemini app page (build label and upload tokens live in it)."""
+    resp = _get_httpx_client().get("https://gemini.google.com/app", headers=auth_headers(), timeout=timeout)
+    resp.raise_for_status()
+    return resp.text
+
+
 def fetch_latest_bl():
     """Fetch the current gemini_bl (build label) from the Gemini page, or None."""
-    req = urllib.request.Request(
-        "https://gemini.google.com/app",
-        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-    )
     try:
-        proxy = CONFIG.get("proxy")
-        if proxy:
-            opener = urllib.request.build_opener(
-                urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
-                urllib.request.HTTPSHandler(context=_get_ssl_ctx()),
-            )
-            resp = opener.open(req, timeout=15)
-        else:
-            resp = urllib.request.urlopen(req, context=_get_ssl_ctx(), timeout=15)
-        html = resp.read().decode("utf-8", errors="replace")
+        html = fetch_gemini_page(timeout=15)
     except Exception as e:
         log(f"BL auto-update fetch failed: {e}")
         return None
@@ -194,9 +188,8 @@ def update_bl_if_needed() -> bool:
 
 
 def _is_stale_bl_error(e: Exception) -> bool:
-    """Gemini answers HTTP 405 when gemini_bl is outdated (urllib or httpx error)."""
-    status = getattr(e, "code", None) or getattr(getattr(e, "response", None), "status_code", None)
-    return status == 405
+    """Gemini answers HTTP 405 when gemini_bl is outdated."""
+    return isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 405
 
 
 def _get_url() -> str:
@@ -265,27 +258,18 @@ def extract_response_text(raw: str, strip_citations: bool = False) -> str:
 def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None) -> str:
     """Non-streaming generation with retry."""
     load_cookie()  # refresh tokens from cookie file before building the request
-    body = _build_payload(prompt, model_id, think_mode, file_refs, extra_fields).encode()
+    body = _build_payload(prompt, model_id, think_mode, file_refs, extra_fields)
     url = _get_url()
     headers = _build_headers()
-    ctx = _get_ssl_ctx()
-    proxy = CONFIG.get("proxy")
+    client = _get_httpx_client()
 
     last_err = None
     started = time.monotonic()
     for attempt in range(CONFIG["retry_attempts"]):
         try:
-            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-            if proxy:
-                opener = urllib.request.build_opener(
-                    urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
-                    urllib.request.HTTPSHandler(context=ctx)
-                )
-                resp = opener.open(req, timeout=CONFIG["request_timeout_sec"])
-            else:
-                resp = urllib.request.urlopen(req, context=ctx, timeout=CONFIG["request_timeout_sec"])
-            raw = resp.read().decode("utf-8", errors="replace")
-            text = extract_response_text(raw, strip_citations=bool(file_refs))
+            resp = client.post(url, content=body, headers=headers)
+            resp.raise_for_status()
+            text = extract_response_text(resp.text, strip_citations=bool(file_refs))
             log(f"Gemini responded in {time.monotonic() - started:.1f}s (attempt {attempt+1})")
             return text
         except Exception as e:
@@ -302,12 +286,6 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
 
 def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None):
     """Streaming generation via httpx with retry on connection failure."""
-    if not HAS_HTTPX:
-        text = generate(prompt, model_id, think_mode, file_refs, extra_fields)
-        if text:
-            yield text
-        return
-
     load_cookie()  # refresh tokens from cookie file before building the request
     body = _build_payload(prompt, model_id, think_mode, file_refs, extra_fields)
     url = _get_url()

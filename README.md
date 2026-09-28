@@ -26,6 +26,8 @@
 >   and the whole request.
 > - **Single codebase**: `gemini_web2api.py` is now a thin wrapper around the `gemini_web2api/`
 >   package; `python gemini_web2api.py` still works.
+> - **httpx required**: every upstream request (generation, streaming, uploads, page fetches) goes
+>   through one shared `httpx` client; the urllib fallback and its duplicated proxy code are gone.
 
 Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, cross-platform, single file.
 
@@ -37,7 +39,7 @@ Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, 
 - **Multiple Models**: Flash (3.6), Extended Thinking (20k+ char output), Pro, Auto, Lite
 - **Thinking Depth**: Adjustable via `@think=N` suffix (0=deepest, 4=shallowest)
 - **Web Search**: Built-in internet access (Gemini's native search)
-- **Cross-Platform**: Pure Python, single optional dependency (`httpx` for streaming)
+- **Cross-Platform**: Pure Python, one dependency (`httpx`)
 - **Streaming**: SSE streaming support via `httpx`
 - **Codex CLI**: Responses API (`/v1/responses`) for OpenAI Codex integration
 - **Gemini CLI**: Google native API (`/v1beta/models`) for Gemini CLI compatibility
@@ -297,7 +299,7 @@ resp = client.chat.completions.create(
 ## Requirements
 
 - Python 3.8+
-- `httpx` (`pip install httpx`) — used for streaming requests
+- `httpx` (`pip install httpx`) — required, used for all upstream requests
 - Network access to `gemini.google.com` (proxy/VPN may be needed in some regions)
 
 ## How It Works

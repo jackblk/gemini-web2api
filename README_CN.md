@@ -16,7 +16,7 @@
 - **多模型**: Flash (3.6), 扩展思考 (2万字+输出), Pro, Auto, Lite
 - **思考深度**: 通过 `@think=N` 后缀调节 (0=最深, 4=最浅)
 - **联网搜索**: 内置互联网访问 (Gemini 原生搜索能力)
-- **跨平台**: 纯 Python, 仅一个可选依赖 (`httpx` 用于流式输出)
+- **跨平台**: 纯 Python, 仅一个依赖 (`httpx`)
 - **流式输出**: 基于 `httpx` 的 SSE Streaming 支持
 - **Codex CLI**: Responses API (`/v1/responses`) 兼容 OpenAI Codex
 - **Gemini CLI**: Google 原生 API (`/v1beta/models`) 兼容 Gemini CLI
@@ -249,7 +249,7 @@ resp = client.chat.completions.create(
 ## 系统要求
 
 - Python 3.8+
-- `httpx` (`pip install httpx`) — 用于流式请求
+- `httpx` (`pip install httpx`) — 必需, 用于所有上游请求
 - 需要能访问 `gemini.google.com` (部分地区需代理)
 
 ## 工作原理
