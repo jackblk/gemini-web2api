@@ -6,6 +6,27 @@
 
 [中文文档](README_CN.md)
 
+> **About this fork.** Changes since upstream commit `2bb988b`:
+>
+> - **Image input fixed**: attachments use Gemini Web's current format (the old one failed with
+>   `BardErrorInfo [1003]`), upstream rejections return 502 instead of an empty reply, and
+>   `[cite: N]` markers are stripped from answers about images.
+> - **One-file auth refresh**: `xsrf_token`, `gemini_bl` and `auth_user` are read from the cookie
+>   file (the cookie-sync extension export) and hot-reload with it. Export, replace the file, done:
+>   no `config.json` edit or restart.
+> - **Relative `cookie_file`** resolves against the folder of `config.json`, not the working
+>   directory. Previously a wrong working directory silently sent requests anonymously.
+> - **`gemini_bl` auto-update** runs in the package, so it also works in Docker: fetched at startup
+>   and refreshed when Gemini answers HTTP 405.
+> - **Logging**: stdlib `logging` on stderr (`YYYY-MM-DD HH:MM:SS [LEVEL] message`), so the startup
+>   banner shows in `docker logs`. Warnings for a missing cookie file and for "temporary chats off
+>   but no cookie" (chats would not be saved to any account).
+> - **Request IDs and timings**: every log line of a request is tagged with its ID (the OpenAI
+>   `chatcmpl-`/`resp_` response `id`), with timings for page tokens, image upload, the Gemini call
+>   and the whole request.
+> - **Single codebase**: `gemini_web2api.py` is now a thin wrapper around the `gemini_web2api/`
+>   package; `python gemini_web2api.py` still works.
+
 Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, cross-platform, single file.
 
 ## Features
