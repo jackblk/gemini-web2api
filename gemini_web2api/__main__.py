@@ -1,6 +1,7 @@
 """Entry point: python -m gemini_web2api"""
 import argparse
 import os
+from pathlib import Path
 
 from .config import CONFIG, load_config, find_config
 from .models import MODELS
@@ -35,7 +36,13 @@ def main():
     print(f"  Listening: http://0.0.0.0:{port}")
     print(f"  Base URL:  http://localhost:{port}/v1")
     print(f"  Models:    {', '.join(MODELS.keys())}")
-    print(f"  Cookie:    {'yes' if CONFIG.get('cookie_file') else 'none (anonymous)'}")
+    cookie_file = CONFIG.get("cookie_file")
+    if not cookie_file:
+        print("  Cookie:    none (anonymous)")
+    elif Path(cookie_file).exists():
+        print(f"  Cookie:    {cookie_file}")
+    else:
+        print(f"  Cookie:    WARNING: {cookie_file} not found, requests will be anonymous")
     print(f"  Proxy:     {CONFIG.get('proxy') or 'system env'}")
     print(f"  Streaming: {'httpx (true streaming)' if HAS_HTTPX else 'urllib (buffered)'}")
     print(f"  Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
