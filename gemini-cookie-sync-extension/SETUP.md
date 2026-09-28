@@ -46,47 +46,37 @@ cp "$WIN_HOME/Downloads/gemini-auth.json" ./gemini-auth.json
 chmod 600 gemini-auth.json
 ```
 
-Update `config.json`:
+Point `config.json` at it once:
 
-```bash
-cd /path/to/gemini-web2api
-
-AUTH_FILE="$(pwd)/gemini-auth.json"
-tmp=$(mktemp)
-
-jq \
-  --arg auth_file "$AUTH_FILE" \
-  --slurpfile auth "$AUTH_FILE" \
-  '
-    .cookie_file = $auth_file
-    | .auth_user = $auth[0].auth_user
-    | .xsrf_token = $auth[0].xsrf_token
-    | if (($auth[0].gemini_bl // "") | length) > 0
-      then .gemini_bl = $auth[0].gemini_bl
-      else .
-      end
-  ' config.json > "$tmp" &&
-mv "$tmp" config.json
-
-chmod 600 config.json
+```json
+{
+  "cookie_file": "./gemini-auth.json"
+}
 ```
 
-Quick check:
+A relative `cookie_file` is resolved against the folder that contains `config.json`, not the
+working directory. With Docker, mount both files into the same folder (for example `/app`).
 
-```bash
-jq '{
-  cookie_file,
-  auth_user,
-  xsrf_token_set: ((.xsrf_token // "") | length > 0),
-  gemini_bl_set: ((.gemini_bl // "") | length > 0)
-}' config.json
+The server reads `cookie`, `sapisid`, `xsrf_token`, `gemini_bl` and `auth_user` straight from
+`gemini-auth.json`. Values there override `config.json` (`auth_user: null` means the default
+account), so you can leave those three keys out of `config.json`.
+
+## Refresh
+
+Export again and replace `gemini-auth.json`. The server notices the file changed and uses the new
+values on the next request; no restart or `config.json` edit is needed.
+
+## Check and test
+
+The startup log shows which cookie file was loaded, and warns if it is missing:
+
+```text
+[INFO] Cookie:    /app/gemini-auth.json
+[WARNING] Cookie:    ./gemini-auth.json not found, requests will be anonymous
 ```
 
-## Restart and test
-
-```bash
-systemctl --user restart gemini-proxy
-```
+A missing cookie does not cause errors: Gemini still answers, but anonymously, so chats are not
+saved to your account.
 
 ```bash
 curl -sS http://127.0.0.1:10012/v1/chat/completions \
