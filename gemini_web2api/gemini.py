@@ -7,6 +7,7 @@ import urllib.request
 import urllib.parse
 import ssl
 import hashlib
+import logging
 from pathlib import Path
 
 try:
@@ -17,6 +18,7 @@ except ImportError:
 
 from .config import CONFIG
 
+logger = logging.getLogger("gemini_web2api")
 _ssl_ctx = None
 _cookie_cache = {"str": "", "sapisid": None, "mtime": 0}
 _httpx_client = None
@@ -24,9 +26,7 @@ _httpx_client = None
 
 def log(msg: str):
     if CONFIG["log_requests"]:
-        import sys
-        sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
-        sys.stderr.flush()
+        logger.info(msg)
 
 
 def _get_ssl_ctx():

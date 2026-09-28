@@ -1,11 +1,12 @@
 """Entry point: python -m gemini_web2api"""
 import argparse
+import logging
 import os
 from pathlib import Path
 
 from .config import CONFIG, load_config, find_config
 from .models import MODELS
-from .gemini import HAS_HTTPX
+from .gemini import HAS_HTTPX, logger
 from .server import GeminiHandler, ThreadedServer
 from . import __version__
 
@@ -18,6 +19,7 @@ def main():
     parser.add_argument("--proxy", type=str, default=None, help="HTTP proxy, e.g. http://127.0.0.1:7890")
     parser.add_argument("--version", action="version", version=f"gemini-web2api {__version__}")
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
     config_path = args.config or os.environ.get("GEMINI_WEB2API_CONFIG") or find_config()
     if config_path:
@@ -32,25 +34,24 @@ def main():
 
     port = CONFIG["port"]
     server = ThreadedServer((CONFIG["host"], port), GeminiHandler)
-    print(f"gemini-web2api v{__version__}")
-    print(f"  Listening: http://0.0.0.0:{port}")
-    print(f"  Base URL:  http://localhost:{port}/v1")
-    print(f"  Models:    {', '.join(MODELS.keys())}")
+    logger.info(f"gemini-web2api v{__version__}")
+    logger.info(f"Listening: http://0.0.0.0:{port}")
+    logger.info(f"Base URL:  http://localhost:{port}/v1")
+    logger.info(f"Models:    {', '.join(MODELS.keys())}")
     cookie_file = CONFIG.get("cookie_file")
     if not cookie_file:
-        print("  Cookie:    none (anonymous)")
+        logger.info("Cookie:    none (anonymous)")
     elif Path(cookie_file).exists():
-        print(f"  Cookie:    {cookie_file}")
+        logger.info(f"Cookie:    {cookie_file}")
     else:
-        print(f"  Cookie:    WARNING: {cookie_file} not found, requests will be anonymous")
-    print(f"  Proxy:     {CONFIG.get('proxy') or 'system env'}")
-    print(f"  Streaming: {'httpx (true streaming)' if HAS_HTTPX else 'urllib (buffered)'}")
-    print(f"  Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
-    print()
+        logger.warning(f"Cookie:    {cookie_file} not found, requests will be anonymous")
+    logger.info(f"Proxy:     {CONFIG.get('proxy') or 'system env'}")
+    logger.info(f"Streaming: {'httpx (true streaming)' if HAS_HTTPX else 'urllib (buffered)'}")
+    logger.info(f"Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        logger.info("Stopped.")
         server.shutdown()
 
 
