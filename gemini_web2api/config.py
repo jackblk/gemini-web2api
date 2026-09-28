@@ -33,6 +33,15 @@ def load_config(path: str = None):
     return CONFIG
 
 
+def write_default_config(path: str):
+    """Create a config file with the defaults. Auth values belong in gemini-auth.json and
+    gemini_bl is fetched, so they are left out."""
+    config_path = Path(path)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    data = {k: v for k, v in DEFAULT_CONFIG.items() if k not in ("gemini_bl", "auth_user", "xsrf_token")}
+    config_path.write_text(json.dumps(data, indent=2) + "\n")
+
+
 def find_config():
     """Search for config file in standard locations."""
     for p in [Path("config.json"), Path.home() / ".config/gemini-web2api/config.json"]:

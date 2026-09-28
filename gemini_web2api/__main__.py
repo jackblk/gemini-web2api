@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-from .config import CONFIG, load_config, find_config
+from .config import CONFIG, load_config, find_config, write_default_config
 from .models import MODELS
 from .gemini import fetch_latest_bl, load_cookie, logger
 from .server import GeminiHandler, ThreadedServer
@@ -23,9 +23,11 @@ def main():
     # httpx logs every request at INFO, untagged and with full URLs (upload IDs included).
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    config_path = args.config or os.environ.get("GEMINI_WEB2API_CONFIG") or find_config()
-    if config_path:
-        load_config(config_path)
+    config_path = args.config or os.environ.get("GEMINI_WEB2API_CONFIG") or find_config() or "config.json"
+    if not Path(config_path).exists():
+        write_default_config(config_path)
+        logger.info(f"Config:    {config_path} not found, created with defaults")
+    load_config(config_path)
 
     if args.port:
         CONFIG["port"] = args.port
@@ -34,7 +36,7 @@ def main():
     if args.proxy:
         CONFIG["proxy"] = args.proxy
 
-    load_cookie()  # apply the cookie file's gemini_bl first, so the fetched one below wins
+    load_cookie()  # apply the cookie file's auth_user before fetching the page below
     new_bl = fetch_latest_bl()
     if new_bl:
         CONFIG["gemini_bl"] = new_bl

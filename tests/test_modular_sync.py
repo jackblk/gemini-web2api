@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 
 import httpx
 
-from gemini_web2api.config import CONFIG, DEFAULT_CONFIG, load_config
+from gemini_web2api.config import CONFIG, DEFAULT_CONFIG, load_config, write_default_config
 from gemini_web2api.gemini import _build_payload, _cookie_cache, load_cookie
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
@@ -577,7 +577,7 @@ class CookieFileTokenTests(unittest.TestCase):
     def setUp(self):
         self.original_config = dict(CONFIG)
         self.tmpdir = tempfile.TemporaryDirectory()
-        self.cookie_path = Path(self.tmpdir.name) / "cookie.json"
+        self.cookie_path = Path(self.tmpdir.name) / "gemini-auth.json"
         CONFIG.update({"cookie_file": str(self.cookie_path),"xsrf_token": "cfg-at",
                        "gemini_bl": "cfg-bl", "auth_user": 1})
         _cookie_cache.update({"str": "", "sapisid": None, "mtime": 0})
@@ -597,7 +597,7 @@ class CookieFileTokenTests(unittest.TestCase):
 
         self.assertEqual(load_cookie(), ("SID=x", "s"))
         self.assertEqual(CONFIG["xsrf_token"], "file-at")
-        self.assertEqual(CONFIG["gemini_bl"], "file-bl")
+        self.assertEqual(CONFIG["gemini_bl"], "cfg-bl")  # always fetched, never from the file
         self.assertIsNone(CONFIG["auth_user"])
 
     def test_missing_tokens_keep_config_values(self):
@@ -608,19 +608,33 @@ class CookieFileTokenTests(unittest.TestCase):
         self.assertEqual(CONFIG["gemini_bl"], "cfg-bl")
         self.assertEqual(CONFIG["auth_user"], 1)
 
+    def test_plain_text_cookie_file_is_rejected(self):
+        self.cookie_path.write_text("SID=x; SAPISID=s")
+
+        self.assertEqual(load_cookie(), ("", None))
+
     def test_relative_cookie_file_resolves_against_config_dir(self):
         config_path = Path(self.tmpdir.name) / "config.json"
-        config_path.write_text(json.dumps({"cookie_file": "./cookie.json"}))
+        config_path.write_text(json.dumps({"cookie_file": "./gemini-auth.json"}))
 
         load_config(str(config_path))
         self.assertEqual(Path(CONFIG["cookie_file"]), self.cookie_path.resolve())
 
+    def test_default_config_is_written_without_auth_values(self):
+        config_path = Path(self.tmpdir.name) / "sub" / "config.json"
+
+        write_default_config(str(config_path))
+        data = json.loads(config_path.read_text())
+        self.assertEqual(data["port"], 8081)
+        self.assertNotIn("gemini_bl", data)
+        self.assertNotIn("xsrf_token", data)
+
     def test_absolute_cookie_file_is_kept(self):
         config_path = Path(self.tmpdir.name) / "config.json"
-        config_path.write_text(json.dumps({"cookie_file": "/etc/cookie.json"}))
+        config_path.write_text(json.dumps({"cookie_file": "/etc/gemini-auth.json"}))
 
         load_config(str(config_path))
-        self.assertEqual(CONFIG["cookie_file"], "/etc/cookie.json")
+        self.assertEqual(CONFIG["cookie_file"], "/etc/gemini-auth.json")
 
 
 if __name__ == "__main__":

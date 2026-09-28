@@ -9,7 +9,6 @@ The extension reads the current signed-in Gemini session and exports:
 - Google session cookies
 - `SAPISID`
 - `SNlM0e` (`xsrf_token`)
-- `cfb2h` (`gemini_bl`)
 - `auth_user`
 
 It saves them locally as `gemini-auth.json`.
@@ -30,7 +29,6 @@ Expected ready state:
 
 ```text
 XSRF / SNlM0e: present
-gemini_bl / cfb2h: present
 Session and XSRF are ready for export.
 ```
 
@@ -57,9 +55,10 @@ Point `config.json` at it once:
 A relative `cookie_file` is resolved against the folder that contains `config.json`, not the
 working directory. With Docker, mount both files into the same folder (for example `/app`).
 
-The server reads `cookie`, `sapisid`, `xsrf_token`, `gemini_bl` and `auth_user` straight from
+The server reads `cookie`, `sapisid`, `xsrf_token` and `auth_user` straight from
 `gemini-auth.json`. Values there override `config.json` (`auth_user: null` means the default
-account), so you can leave those three keys out of `config.json`.
+account), so you can leave `xsrf_token` and `auth_user` out of `config.json`. `gemini_bl` is
+fetched from the Gemini page by the server.
 
 ## Refresh
 

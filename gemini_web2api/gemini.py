@@ -44,7 +44,7 @@ def _get_httpx_client() -> httpx.Client:
 
 
 def load_cookie() -> tuple:
-    """Load cookie from file with mtime-based caching."""
+    """Load the gemini-auth.json cookie file (JSON only) with mtime-based caching."""
     cookie_file = CONFIG.get("cookie_file")
     if not cookie_file or not (cookie_path := Path(cookie_file)).exists():
         return "", None
@@ -52,25 +52,18 @@ def load_cookie() -> tuple:
         mtime = cookie_path.stat().st_mtime
         if mtime == _cookie_cache["mtime"] and _cookie_cache["str"]:
             return _cookie_cache["str"], _cookie_cache["sapisid"]
-        content = cookie_path.read_text().strip()
-        if content.startswith("{"):
-            data = json.loads(content)
-            cookie_str = data.get("cookie", "")
-            sapisid = data.get("sapisid", "")
-            # Extension exports carry fresh page tokens; they override config.json.
-            for key in ("xsrf_token", "gemini_bl"):
-                if data.get(key):
-                    CONFIG[key] = data[key]
-            if "auth_user" in data:
-                CONFIG["auth_user"] = data["auth_user"]
-        else:
-            cookie_str = content
-            pairs = dict(p.split("=", 1) for p in cookie_str.split("; ") if "=" in p)
-            sapisid = pairs.get("SAPISID", "")
+        data = json.loads(cookie_path.read_text())
+        cookie_str = data.get("cookie", "")
+        sapisid = data.get("sapisid", "")
+        # Extension exports carry fresh page tokens; they override config.json.
+        if data.get("xsrf_token"):
+            CONFIG["xsrf_token"] = data["xsrf_token"]
+        if "auth_user" in data:
+            CONFIG["auth_user"] = data["auth_user"]
         _cookie_cache.update({"str": cookie_str, "sapisid": sapisid or None, "mtime": mtime})
         return cookie_str, sapisid if sapisid else None
     except Exception as e:
-        log(f"Cookie load error: {e}")
+        log(f"Cookie load error (expected gemini-auth.json JSON): {e}")
         return _cookie_cache["str"], _cookie_cache["sapisid"]
 
 

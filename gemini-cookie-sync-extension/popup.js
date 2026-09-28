@@ -301,7 +301,6 @@ function inspectionMessage(info) {
     `SAPISID: ${selected.has("SAPISID") ? "present" : "missing"}`,
     `Session cookie: ${validation.sessionCookie || "missing"}`,
     `XSRF / SNlM0e: ${pageMetadata.xsrfToken ? "present" : "missing"}`,
-    `gemini_bl / cfb2h: ${pageMetadata.geminiBl ? "present" : "missing"}`,
     `auth_user: ${authUser ?? "default account"}`,
     `Page data source: ${pageMetadata.source || "unavailable"}`,
     "",
@@ -384,8 +383,7 @@ exportButton.addEventListener("click", async () => {
       cookie: cookieString,
       sapisid: info.selected.get("SAPISID").value,
       auth_user: info.authUser,
-      xsrf_token: info.pageMetadata.xsrfToken,
-      gemini_bl: info.pageMetadata.geminiBl
+      xsrf_token: info.pageMetadata.xsrfToken
     };
 
     await downloadJson("gemini-auth.json", payload);
@@ -395,7 +393,6 @@ exportButton.addEventListener("click", async () => {
       `Created gemini-auth.json with ${exportedNames.length} cookie(s) and XSRF.\n\n` +
       `Session cookie: ${info.validation.sessionCookie}\n` +
       `XSRF: present\n` +
-      `gemini_bl: ${info.pageMetadata.geminiBl ? "present" : "not present — current server setting will remain"}\n` +
       `auth_user: ${info.authUser ?? "null"}\n\n` +
       "Move the file into gemini-web2api and do not share it or commit it to Git.",
       "ok"

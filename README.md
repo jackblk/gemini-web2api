@@ -4,30 +4,11 @@
   <img src="logo.png" width="200" alt="gemini-web2api logo">
 </p>
 
-[中文文档](README_CN.md)
-
-> **About this fork.** Changes since upstream commit `2bb988b`:
+> **About this fork**
 >
-> - **Image input fixed**: attachments use Gemini Web's current format (the old one failed with
->   `BardErrorInfo [1003]`), upstream rejections return 502 instead of an empty reply, and
->   `[cite: N]` markers are stripped from answers about images.
-> - **One-file auth refresh**: `xsrf_token`, `gemini_bl` and `auth_user` are read from the cookie
->   file (the cookie-sync extension export) and hot-reload with it. Export, replace the file, done:
->   no `config.json` edit or restart.
-> - **Relative `cookie_file`** resolves against the folder of `config.json`, not the working
->   directory. Previously a wrong working directory silently sent requests anonymously.
-> - **`gemini_bl` auto-update** runs in the package, so it also works in Docker: fetched at startup
->   and refreshed when Gemini answers HTTP 405.
-> - **Logging**: stdlib `logging` on stderr (`YYYY-MM-DD HH:MM:SS [LEVEL] message`), so the startup
->   banner shows in `docker logs`. Warnings for a missing cookie file and for "temporary chats off
->   but no cookie" (chats would not be saved to any account).
-> - **Request IDs and timings**: every log line of a request is tagged with its ID (the OpenAI
->   `chatcmpl-`/`resp_` response `id`), with timings for page tokens, image upload, the Gemini call
->   and the whole request.
-> - **Single codebase**: `gemini_web2api.py` is now a thin wrapper around the `gemini_web2api/`
->   package; `python gemini_web2api.py` still works.
-> - **httpx required**: every upstream request (generation, streaming, uploads, page fetches) goes
->   through one shared `httpx` client; the urllib fallback and its duplicated proxy code are gone.
+> - **Refactored**: httpx only, cleaner code, better logging, single codebase.
+> - **Bug fixes**: image upload, relative cookie file path.
+> - **Features**: request IDs and timings in logs, `gemini_bl` auto-update, one `gemini-auth.json` file for all auth values, with hot reload.
 
 Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, cross-platform, single file.
 
@@ -47,11 +28,20 @@ Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, 
 ## Quick Start
 
 ```bash
+docker run -d --name gemini-web2api -p 8081:8081 ghcr.io/jackblk/gemini-web2api:latest
+```
+
+Server starts at `http://localhost:8081/v1`, anonymous and without API keys. See [Docker](#docker)
+to use your own `config.json` or sign in.
+
+Without Docker:
+
+```bash
 pip install httpx
 python gemini_web2api.py
 ```
 
-Server starts at `http://localhost:8081/v1`.
+If no `config.json` is found, the server creates one with the defaults on first run.
 
 ## Client Configuration
 
@@ -129,56 +119,53 @@ gemini-3.5-flash-thinking@think=2   # medium
 gemini-3.5-flash-thinking@think=4   # shallowest
 ```
 
-## Optional: Cookie for Pro
+## Authentication
 
-Anonymous access works for all models, but `gemini-3.1-pro` routes to Flash without authentication. To get real Pro routing, you need a **Gemini Advanced (paid subscription)** account cookie:
+### Anonymous (default)
 
-```bash
-python gemini_web2api.py --cookie-file cookie.txt
-```
+No setup needed. Leave `cookie_file` as `null`. Some models do not work anonymously and are
+rerouted to Flash:
 
-### How to get cookies
+- `gemini-3.1-pro`
+- `gemini-3.1-pro-enhanced`
 
-1. Open Chrome, go to [gemini.google.com](https://gemini.google.com) and sign in with a **Gemini Advanced** Google account
-2. Open DevTools (F12) → Application → Cookies → `https://gemini.google.com`
-3. Copy these cookie values: `SID`, `HSID`, `SSID`, `APISID`, `SAPISID`, `__Secure-1PSID`
-4. Create `cookie.txt` in this format:
+### Signed in
 
-```
-SID=your_sid_value; HSID=your_hsid_value; SSID=your_ssid_value; APISID=your_apisid_value; SAPISID=your_sapisid_value; __Secure-1PSID=your_1psid_value
-```
+Signing in with a **Gemini Advanced** (paid) account gives real Pro routing. A free account
+authenticates but still falls back to Flash.
 
-Or use the JSON format:
-```json
-{"cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx", "sapisid": "your_sapisid_value"}
-```
+1. Create `gemini-auth.json`, either:
+   - **with the extension (recommended)**: install and run the cookie-sync extension as described in
+     [gemini-cookie-sync-extension/README.txt](gemini-cookie-sync-extension/README.txt); it exports
+     `gemini-auth.json` (details in [SETUP.md](gemini-cookie-sync-extension/SETUP.md)), or
+   - **by hand**, with this format:
 
-**Alternative (browser extension)**: Use any "Export Cookies" extension to export cookies for `gemini.google.com` in Netscape format, then convert to the single-line format above.
+     ```json
+     {
+       "cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx",
+       "sapisid": "value of the SAPISID cookie",
+       "auth_user": null,
+       "xsrf_token": "AOOh0P..."
+     }
+     ```
 
-### Authenticated account path and XSRF token
+     Cookie values come from DevTools (F12) → Application → Cookies → `https://gemini.google.com`.
+     `auth_user` is the `N` in a `https://gemini.google.com/u/N/app` URL (`null` for the default
+     account). `xsrf_token` is the `SNlM0e` value in the page source.
 
-If the signed-in Gemini page URL contains an account index, such as:
+2. Point `config.json` at it (a relative path resolves against the folder of `config.json`):
 
-```
-https://gemini.google.com/u/1/app/...
-```
+   ```json
+   {"cookie_file": "./gemini-auth.json"}
+   ```
 
-set `auth_user` to that index. Authenticated web requests may also require the page XSRF token. In the rendered Gemini page source, this token is exposed as `SNlM0e`; pass it as `xsrf_token` in `config.json`. The server sends it as the `at` form field.
+   Or pass `--cookie-file gemini-auth.json` on the command line.
 
-Example:
+`auth_user` and `xsrf_token` in `gemini-auth.json` override `config.json`. To refresh,
+replace the file; the server reloads it on the next request without a restart.
 
-```json
-{
-  "cookie_file": "/app/cookie.txt",
-  "auth_user": "1",
-  "xsrf_token": "AOOh0P...",
-  "gemini_bl": "boq_assistant-bard-web-server_YYYYMMDD.xx_p0"
-}
-```
-
-If authenticated requests return HTTP 400 with an `xsrf` error, refresh Gemini Web, update `xsrf_token`, and make sure `auth_user` matches the `/u/<index>/` part of the browser URL.
-
-Pro routing requires **Gemini Advanced** (paid subscription). A free Google account cookie will authenticate but silently fall back to Flash.
+If requests return HTTP 400 with an `xsrf` error, export `gemini-auth.json` again and make sure
+`auth_user` matches the `/u/<index>/` part of the browser URL.
 
 ## Configuration
 
@@ -191,9 +178,6 @@ Create `config.json` in the same directory:
   "retry_attempts": 3,
   "retry_delay_sec": 2,
   "request_timeout_sec": 180,
-  "gemini_bl": "boq_assistant-bard-web-server_20260925.18_p1",
-  "auth_user": null,
-  "xsrf_token": null,
   "api_keys": ["sk-your-key"],
   "cookie_file": null,
   "proxy": null,
@@ -209,26 +193,45 @@ When `api_keys` is `[]`, authentication is disabled. When one or more keys are s
 
 ## Docker
 
+Use the published image `ghcr.io/jackblk/gemini-web2api`
+
 ```bash
+# create config file
 cp config.example.json config.json
-docker build -t gemini-web2api .
-docker run -d --name gemini-web2api -p 8081:8081 -v ./config.json:/app/config.json gemini-web2api
+# run container with the config file
+docker run -d \
+  --name gemini-web2api \
+  -p 8081:8081 \
+  -v ./config.json:/app/config.json \
+  ghcr.io/jackblk/gemini-web2api:latest
 ```
 
-Or use Docker Compose:
+Or with Docker Compose (`docker-compose.yml`):
+
+```yaml
+services:
+  gemini-web2api:
+    image: ghcr.io/jackblk/gemini-web2api:latest
+    container_name: gemini-web2api
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./config.json:/app/config.json
+      # - ./gemini-auth.json:/app/gemini-auth.json  # to sign in
+    restart: unless-stopped
+```
 
 ```bash
-cp config.example.json config.json
 docker compose up -d
 ```
 
-To mount a cookie file:
+To sign in, also mount `gemini-auth.json`:
 
 ```bash
-docker run -d --name gemini-web2api -p 8081:8081 -v ./config.json:/app/config.json -v ./cookie.txt:/app/cookie.txt gemini-web2api
+docker run -d --name gemini-web2api -p 8081:8081 -v ./config.json:/app/config.json -v ./gemini-auth.json:/app/gemini-auth.json ghcr.io/jackblk/gemini-web2api:latest
 ```
 
-Set `"cookie_file": "/app/cookie.txt"` in `config.json`.
+Set `"cookie_file": "/app/gemini-auth.json"` in `config.json`.
 
 > **Note**: If you get empty responses (`content: null`) with Docker's default bridge network, switch to host networking: `docker run --network host ...` or add `network_mode: host` in your compose file. This is caused by Gemini's upstream rejecting requests from certain Docker NAT IP ranges.
 
@@ -310,19 +313,9 @@ The model selection is controlled by field `[79]` in the request payload, mapped
 
 ## Acknowledgments
 
+- Upstream: [Sophomoresty/gemini-web2api](https://github.com/Sophomoresty/gemini-web2api)
 - Inspired by the open-source API proxy ecosystem
 
 ## License
 
 MIT
-
----
-
-## 致谢
-
-本项目的开发 agent 能力由 [GenericAgent](https://github.com/lsdefine/GenericAgent) 提供。
-
-### 🚩 友情链接
-
-[![GenericAgent](https://img.shields.io/badge/Agent_Framework-GenericAgent-orange?style=for-the-badge&logo=github)](https://github.com/lsdefine/GenericAgent)
-[![LinuxDo](https://img.shields.io/badge/社区-LinuxDo-blue?style=for-the-badge)](https://linux.do/)

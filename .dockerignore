@@ -4,6 +4,6 @@
 __pycache__
 *.pyc
 config.json
-cookie.txt
-cookie.json
 .env
+gemini-auth.json
+tmp
