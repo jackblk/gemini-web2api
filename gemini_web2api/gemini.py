@@ -159,6 +159,46 @@ def _build_payload(prompt: str, model_id: int, think_mode: int, file_refs: list 
     return urllib.parse.urlencode(params)
 
 
+def fetch_latest_bl():
+    """Fetch the current gemini_bl (build label) from the Gemini page, or None."""
+    req = urllib.request.Request(
+        "https://gemini.google.com/app",
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+    )
+    try:
+        proxy = CONFIG.get("proxy")
+        if proxy:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
+                urllib.request.HTTPSHandler(context=_get_ssl_ctx()),
+            )
+            resp = opener.open(req, timeout=15)
+        else:
+            resp = urllib.request.urlopen(req, context=_get_ssl_ctx(), timeout=15)
+        html = resp.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        log(f"BL auto-update fetch failed: {e}")
+        return None
+    m = re.search(r'(boq_assistant-bard-web-server_\d+\.\d+_p\d+)', html)
+    return m.group(1) if m else None
+
+
+def update_bl_if_needed() -> bool:
+    """Refresh gemini_bl from the Gemini page. Returns True if it changed."""
+    new_bl = fetch_latest_bl()
+    if new_bl and new_bl != CONFIG["gemini_bl"]:
+        log(f"BL auto-updated: {CONFIG['gemini_bl']} -> {new_bl}")
+        CONFIG["gemini_bl"] = new_bl
+        return True
+    return False
+
+
+def _is_stale_bl_error(e: Exception) -> bool:
+    """Gemini answers HTTP 405 when gemini_bl is outdated (urllib or httpx error)."""
+    status = getattr(e, "code", None) or getattr(getattr(e, "response", None), "status_code", None)
+    return status == 405
+
+
 def _get_url() -> str:
     reqid = int(time.time()) % 1000000
     account_prefix = _account_prefix()
@@ -250,6 +290,10 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
             return text
         except Exception as e:
             last_err = e
+            if _is_stale_bl_error(e) and update_bl_if_needed():
+                url = _get_url()
+                log("Retrying with updated BL...")
+                continue
             if attempt < CONFIG["retry_attempts"] - 1:
                 log(f"Retry {attempt+1}/{CONFIG['retry_attempts']} after {time.monotonic() - started:.1f}s: {e}")
                 time.sleep(CONFIG["retry_delay_sec"])
@@ -312,6 +356,10 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
             return
         except Exception as e:
             last_err = e
+            if _is_stale_bl_error(e) and update_bl_if_needed():
+                url = _get_url()
+                log("Retrying with updated BL...")
+                continue
             if attempt < CONFIG["retry_attempts"] - 1:
                 log(f"Stream retry {attempt+1}/{CONFIG['retry_attempts']} after {time.monotonic() - started:.1f}s: {e}")
                 time.sleep(CONFIG["retry_delay_sec"])

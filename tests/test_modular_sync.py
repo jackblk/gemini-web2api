@@ -4,12 +4,13 @@ import json
 import tempfile
 import threading
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs
 
 from gemini_web2api.config import CONFIG, DEFAULT_CONFIG, load_config
-from gemini_web2api.gemini import _build_payload, _cookie_cache, load_cookie
+from gemini_web2api.gemini import HAS_HTTPX, _build_payload, _cookie_cache, load_cookie
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
 
@@ -134,6 +135,49 @@ class UpstreamErrorTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, r"BardErrorInfo \[1003\]"):
             list(generate_stream("p", 1, 4))
+
+
+class StaleBlRetryTests(unittest.TestCase):
+    def setUp(self):
+        self.original_config = dict(CONFIG)
+        CONFIG.update({"gemini_bl": "boq_old", "cookie_file": None})
+
+    def tearDown(self):
+        CONFIG.clear()
+        CONFIG.update(self.original_config)
+
+    @mock.patch("gemini_web2api.gemini.fetch_latest_bl", return_value="boq_new")
+    @mock.patch("gemini_web2api.gemini.urllib.request.urlopen")
+    def test_generate_refreshes_bl_after_405(self, urlopen, _fetch):
+        from gemini_web2api.gemini import generate
+
+        ok = mock.MagicMock()
+        ok.read.return_value = b""
+        urlopen.side_effect = [urllib.error.HTTPError("u", 405, "Method Not Allowed", None, None), ok]
+
+        generate("p", 1, 4)
+
+        self.assertIn("bl=boq_old", urlopen.call_args_list[0].args[0].full_url)
+        self.assertIn("bl=boq_new", urlopen.call_args_list[1].args[0].full_url)
+        self.assertEqual(CONFIG["gemini_bl"], "boq_new")
+
+    @unittest.skipUnless(HAS_HTTPX, "httpx not installed")
+    @mock.patch("gemini_web2api.gemini.fetch_latest_bl", return_value="boq_new")
+    @mock.patch("gemini_web2api.gemini._get_httpx_client")
+    def test_stream_refreshes_bl_after_405(self, get_client, _fetch):
+        from gemini_web2api.gemini import generate_stream
+
+        stale = RuntimeError("405 Method Not Allowed")
+        stale.response = mock.Mock(status_code=405)
+        ok = mock.MagicMock()
+        ok.__enter__.return_value.iter_text.return_value = iter([])
+        stream = get_client.return_value.stream
+        stream.side_effect = [stale, ok]
+
+        list(generate_stream("p", 1, 4))
+
+        self.assertIn("bl=boq_old", stream.call_args_list[0].args[1])
+        self.assertIn("bl=boq_new", stream.call_args_list[1].args[1])
 
 
 class MessageParsingTests(unittest.TestCase):

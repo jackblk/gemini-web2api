@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .config import CONFIG, load_config, find_config
 from .models import MODELS
-from .gemini import HAS_HTTPX, logger
+from .gemini import HAS_HTTPX, fetch_latest_bl, load_cookie, logger
 from .server import GeminiHandler, ThreadedServer
 from . import __version__
 
@@ -32,6 +32,11 @@ def main():
     if args.proxy:
         CONFIG["proxy"] = args.proxy
 
+    load_cookie()  # apply the cookie file's gemini_bl first, so the fetched one below wins
+    new_bl = fetch_latest_bl()
+    if new_bl:
+        CONFIG["gemini_bl"] = new_bl
+
     port = CONFIG["port"]
     server = ThreadedServer((CONFIG["host"], port), GeminiHandler)
     logger.info(f"gemini-web2api v{__version__}")
@@ -47,6 +52,7 @@ def main():
         logger.warning(f"Cookie:    {cookie_file} not found, requests will be anonymous")
     logger.info(f"Proxy:     {CONFIG.get('proxy') or 'system env'}")
     logger.info(f"Streaming: {'httpx (true streaming)' if HAS_HTTPX else 'urllib (buffered)'}")
+    logger.info(f"BL:        {CONFIG['gemini_bl']}{'' if new_bl else ' (auto-update failed, using configured value)'}")
     logger.info(f"Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
     if not CONFIG.get("temporary_chats", False) and not (cookie_file and Path(cookie_file).exists()):
         logger.warning("Temporary chats are off but no cookie is loaded: chats will not be saved to any account")
