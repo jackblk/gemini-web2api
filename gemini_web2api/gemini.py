@@ -60,6 +60,12 @@ def load_cookie() -> tuple:
             data = json.loads(content)
             cookie_str = data.get("cookie", "")
             sapisid = data.get("sapisid", "")
+            # Extension exports carry fresh page tokens; they override config.json.
+            for key in ("xsrf_token", "gemini_bl"):
+                if data.get(key):
+                    CONFIG[key] = data[key]
+            if "auth_user" in data:
+                CONFIG["auth_user"] = data["auth_user"]
         else:
             cookie_str = content
             pairs = dict(p.split("=", 1) for p in cookie_str.split("; ") if "=" in p)
@@ -215,6 +221,7 @@ def extract_response_text(raw: str, strip_citations: bool = False) -> str:
 
 def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None) -> str:
     """Non-streaming generation with retry."""
+    load_cookie()  # refresh tokens from cookie file before building the request
     body = _build_payload(prompt, model_id, think_mode, file_refs, extra_fields).encode()
     url = _get_url()
     headers = _build_headers()
@@ -251,6 +258,7 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
             yield text
         return
 
+    load_cookie()  # refresh tokens from cookie file before building the request
     body = _build_payload(prompt, model_id, think_mode, file_refs, extra_fields)
     url = _get_url()
     headers = _build_headers()

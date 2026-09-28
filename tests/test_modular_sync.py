@@ -1,13 +1,15 @@
 import http.client
 import base64
 import json
+import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs
 
 from gemini_web2api.config import CONFIG, DEFAULT_CONFIG
-from gemini_web2api.gemini import _build_payload
+from gemini_web2api.gemini import _build_payload, _cookie_cache, load_cookie
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
 
@@ -505,6 +507,42 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(events[3][1]["delta"], '{"city":"Shanghai"}')
         self.assertEqual(events[4][1]["arguments"], '{"city":"Shanghai"}')
         self.assertEqual(events[-1][1]["response"]["output"][0]["name"], "get_weather")
+
+
+class CookieFileTokenTests(unittest.TestCase):
+    def setUp(self):
+        self.original_config = dict(CONFIG)
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.cookie_path = Path(self.tmpdir.name) / "cookie.json"
+        CONFIG.update({"cookie_file": str(self.cookie_path),"xsrf_token": "cfg-at",
+                       "gemini_bl": "cfg-bl", "auth_user": 1})
+        _cookie_cache.update({"str": "", "sapisid": None, "mtime": 0})
+
+    def tearDown(self):
+        CONFIG.clear()
+        CONFIG.update(self.original_config)
+        _cookie_cache.update({"str": "", "sapisid": None, "mtime": 0})
+        self.tmpdir.cleanup()
+
+    def _write(self, data):
+        self.cookie_path.write_text(json.dumps(data))
+
+    def test_cookie_file_tokens_override_config(self):
+        self._write({"cookie": "SID=x", "sapisid": "s", "auth_user": None,
+                     "xsrf_token": "file-at", "gemini_bl": "file-bl"})
+
+        self.assertEqual(load_cookie(), ("SID=x", "s"))
+        self.assertEqual(CONFIG["xsrf_token"], "file-at")
+        self.assertEqual(CONFIG["gemini_bl"], "file-bl")
+        self.assertIsNone(CONFIG["auth_user"])
+
+    def test_missing_tokens_keep_config_values(self):
+        self._write({"cookie": "SID=x", "sapisid": "s"})
+
+        load_cookie()
+        self.assertEqual(CONFIG["xsrf_token"], "cfg-at")
+        self.assertEqual(CONFIG["gemini_bl"], "cfg-bl")
+        self.assertEqual(CONFIG["auth_user"], 1)
 
 
 if __name__ == "__main__":
